@@ -6,12 +6,14 @@ from plotly.subplots import make_subplots
 import datetime
 import numpy as np
 
-# 設定網頁寬度
+# 設定網頁寬度與標題
 st.set_page_config(layout="wide", page_title="S&P 500 Market Dashboard")
 
 # ==========================================
-# 1. 核心數據定義 (Full S&P 500)
+# 1. 核心數據定義 (完整 S&P 500 成分股)
 # ==========================================
+# 為了準確計算市場廣度，這裡包含了主要成分股清單
+# (註：為了程式碼長度與維護性，這裡列出各板塊主要代表，若需 100% 精確的全體 503 檔，可持續擴充此列表)
 
 RAW_SECTOR_DATA = {
     'XLB (原物料)': [
@@ -186,7 +188,7 @@ def parse_sector_data():
 def get_market_data(tickers):
     all_tickers = tickers + ['^GSPC', 'TLT', '^VIX'] 
     try:
-        # 下載近 2 年數據
+        # 下載 2 年歷史數據以確保長天期指標計算無誤
         data = yf.download(all_tickers, period="2y", group_by='ticker', threads=True, auto_adjust=True)
         return data
     except Exception as e:
@@ -213,14 +215,14 @@ def calculate_market_indicators(data, tickers):
     above_counts = above_ma60.sum(axis=1)
     breadth_pct = (above_counts / valid_counts * 100).fillna(0)
     
-    # B. 創 52 週新高/新低比率 (Highs / Lows Ratio)
+    # B. 52 週新高/新低比率 (Highs / Lows Ratio) - S&P 500 Version
+    # 這是您特別指定的「S&P 500 版」貪婪恐懼指標
     roll_max_252 = high_df.rolling(window=252).max()
     roll_min_252 = low_df.rolling(window=252).min()
     new_highs = (high_df >= roll_max_252).sum(axis=1)
     new_lows = (low_df <= roll_min_252).sum(axis=1)
     
-    # 計算比率，避免除以零 (若新低為 0，則設為 1 以避免無限大，或者顯示原始新高數)
-    # 這裡我們用 1 作為最小分母，讓圖表不會斷掉
+    # 避免除以 0：若新低為 0，設分母為 1
     safe_lows = new_lows.replace(0, 1) 
     nh_nl_ratio = new_highs / safe_lows
     
@@ -231,7 +233,7 @@ def calculate_market_indicators(data, tickers):
     net_adv_dec = advancing - declining
     ad_ma20 = net_adv_dec.rolling(window=20).mean()
     
-    # D. 資產強弱 (20日報酬率相減)
+    # D. 資產強弱 (報酬率差值)
     sp500_ret_20 = sp500.pct_change(20) * 100
     tlt_ret_20 = tlt.pct_change(20) * 100
     strength_diff = sp500_ret_20 - tlt_ret_20
@@ -244,7 +246,7 @@ def calculate_market_indicators(data, tickers):
         'dates': sp500.index[-lookback:],
         'sp500': sp500.iloc[-lookback:],
         'breadth_pct': breadth_pct.iloc[-lookback:],
-        'nh_nl_ratio': nh_nl_ratio.iloc[-lookback:], # 新指標
+        'nh_nl_ratio': nh_nl_ratio.iloc[-lookback:], 
         'ad_ma20': ad_ma20.iloc[-lookback:],
         'strength_diff': strength_diff.iloc[-lookback:],
         'vix': vix.iloc[-lookback:],
@@ -258,7 +260,7 @@ def get_latest_snapshot(data, tickers):
             if ticker not in data: continue
             df = data[ticker]
             df = df.dropna(subset=['Close', 'Volume'])
-            if df.empty or len(df) < 252: continue # 確保有足夠數據算52週高低
+            if df.empty or len(df) < 252: continue 
             
             curr = df.iloc[-1]
             prev = df.iloc[-2]
@@ -283,8 +285,8 @@ def get_latest_snapshot(data, tickers):
                 'Bias 20(%)': bias_20,
                 'Volatility': volatility,
                 'RVol': r_vol,
-                '52W High': high_52w, # 新增
-                '52W Low': low_52w    # 新增
+                '52W High': high_52w,
+                '52W Low': low_52w
             })
         except:
             continue
@@ -297,7 +299,7 @@ def get_latest_snapshot(data, tickers):
 def main():
     st.title("📊 S&P 500 Advanced Market Dashboard")
     st.write(f"Last Update: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    st.info("首次載入可能需要較長時間下載完整成分股數據，請稍候...")
+    st.info("首次載入可能需要 30-60 秒下載完整成分股數據，請稍候...")
     
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
@@ -316,6 +318,7 @@ def main():
         df_snapshot = get_latest_snapshot(full_data, tickers)
         df_snapshot['Sector'] = df_snapshot['Ticker'].map(sector_map)
         
+        # 計算各產業今日平均漲跌幅 (Today's Average Sector Change)
         sector_perf = df_snapshot.groupby('Sector')['Change %'].mean().sort_values(ascending=False)
 
     # 繪圖 Layout
@@ -325,11 +328,11 @@ def main():
         row_heights=[0.1, 0.1, 0.1, 0.1, 0.1, 0.15, 0.08, 0.08, 0.08, 0.08],
         specs=[
             [{"colspan": 2, "secondary_y": True}, None], # R1
-            [{"colspan": 2, "secondary_y": True}, None], # R2: NH/NL Ratio (Line)
+            [{"colspan": 2, "secondary_y": True}, None], # R2
             [{"colspan": 2, "secondary_y": True}, None], # R3
-            [{"colspan": 2, "secondary_y": True}, None], # R4: Strength Diff (Line)
+            [{"colspan": 2, "secondary_y": True}, None], # R4
             [{"colspan": 2, "secondary_y": True}, None], # R5
-            [{"colspan": 2, "secondary_y": False}, None],# R6
+            [{"colspan": 2, "secondary_y": False}, None],# R6: Sector Perf
             [{"type": "table"}, {"type": "table"}],
             [{"type": "table"}, {"type": "table"}],
             [{"type": "table"}, {"type": "table"}],
@@ -338,11 +341,11 @@ def main():
         vertical_spacing=0.06,
         subplot_titles=(
             "市場廣度：站上 60MA 比例 vs S&P 500",
-            "市場內部：52週新高/新低 家數比率 (Highs/Lows Ratio)",
+            "市場內部：52週新高/新低 家數比率 (Highs/Lows Ratio) - S&P 500 Version",
             "市場動能：20日平均淨上漲家數 (Net Adv-Dec) vs S&P 500",
             "資產強弱：(S&P500 20日報酬 - TLT 20日報酬) 差值 (折線圖)",
             "恐慌指數：VIX vs 50日均線",
-            "各產業今日平均漲跌幅 (Sector Performance)",
+            "各產業今日平均漲跌幅 (Today's Sector Performance)",
             "1. 漲幅最強 10 檔", "2. 跌幅最重 10 檔",
             "3. 高波動度", "6. 正乖離過大 (>MA20)",
             "7. 負乖離過大 (<MA20)", "4. 爆量上漲",
@@ -359,7 +362,7 @@ def main():
     # R2: NH/NL Ratio (Line Chart)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=2, col=1, secondary_y=False)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['nh_nl_ratio'], name="Highs/Lows Ratio", line=dict(color='green', width=2)), row=2, col=1, secondary_y=True)
-    fig.add_hline(y=1, line_dash="dash", line_color="gray", row=2, col=1, secondary_y=True) # 1 代表勢均力敵
+    fig.add_hline(y=1, line_dash="dash", line_color="gray", row=2, col=1, secondary_y=True)
 
     # R3: A/D Line
     ad_colors = ['green' if v >= 0 else 'red' for v in mkt['ad_ma20']]
@@ -376,7 +379,7 @@ def main():
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix'], name="VIX", line=dict(color='red', width=1)), row=5, col=1, secondary_y=True)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix_ma50'], name="VIX MA50", line=dict(color='darkred', width=1.5, dash='dash')), row=5, col=1, secondary_y=True)
 
-    # R6: Sector Performance
+    # R6: Sector Performance (今日漲跌幅)
     sect_colors = ['green' if v >= 0 else 'red' for v in sector_perf.values]
     fig.add_trace(go.Bar(
         x=sector_perf.index, 
@@ -388,7 +391,7 @@ def main():
         name="Sector Change"
     ), row=6, col=1)
 
-    # Tables (Updated with 52W High/Low)
+    # Tables
     def add_table(row, col, df, cols=['Ticker', 'Close', 'Chg%', '52W High', '52W Low', 'Val']):
         fig.add_trace(go.Table(
             header=dict(values=cols, fill_color='navy', font=dict(color='white'), align='left'),
@@ -396,7 +399,6 @@ def main():
         ), row=row, col=col)
 
     def fmt(df, val_col, format_str):
-        # 選取需要的欄位並排序
         d = df[['Ticker', 'Close', 'Change %', '52W High', '52W Low', val_col]].copy()
         d['Close'] = d['Close'].map('{:,.2f}'.format)
         d['Change %'] = d['Change %'].map('{:+.2f}%'.format)
@@ -405,7 +407,6 @@ def main():
         d[val_col] = d[val_col].map(format_str.format)
         return d
 
-    # 表格填入 (現在都包含 52W 高低)
     add_table(7, 1, fmt(df_snapshot.sort_values('Change %', ascending=False).head(10), 'RVol', '{:.2f}x'))
     add_table(7, 2, fmt(df_snapshot.sort_values('Change %', ascending=True).head(10), 'RVol', '{:.2f}x'))
     add_table(8, 1, fmt(df_snapshot.sort_values('Volatility', ascending=False).head(10), 'Volatility', '{:.2f}%'))
