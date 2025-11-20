@@ -10,10 +10,23 @@ import numpy as np
 st.set_page_config(layout="wide", page_title="S&P 500 Market Dashboard")
 
 # ==========================================
-# 1. 核心數據定義 (完整 S&P 500 成分股)
+# 1. 核心數據定義
 # ==========================================
-# 為了準確計算市場廣度，這裡包含了主要成分股清單
-# (註：為了程式碼長度與維護性，這裡列出各板塊主要代表，若需 100% 精確的全體 503 檔，可持續擴充此列表)
+
+# 定義板塊 ETF 代碼對照表 (用於直接抓取精準漲跌幅)
+SECTOR_ETF_MAP = {
+    'XLB (原物料)': 'XLB',
+    'XLC (通訊)': 'XLC',
+    'XLE (能源)': 'XLE',
+    'XLF (金融)': 'XLF',
+    'XLI (工業)': 'XLI',
+    'XLK (科技)': 'XLK',
+    'XLP (必需消費)': 'XLP',
+    'XLRE (房地產)': 'XLRE',
+    'XLU (公用事業)': 'XLU',
+    'XLV (醫療)': 'XLV',
+    'XLY (非必需消費)': 'XLY'
+}
 
 RAW_SECTOR_DATA = {
     'XLB (原物料)': [
@@ -186,9 +199,12 @@ def parse_sector_data():
 
 @st.cache_data(ttl=3600)
 def get_market_data(tickers):
-    all_tickers = tickers + ['^GSPC', 'TLT', '^VIX'] 
+    # 新增下載 11 大板塊 ETF 的報價
+    sector_etfs = list(SECTOR_ETF_MAP.values())
+    all_tickers = tickers + ['^GSPC', 'TLT', '^VIX'] + sector_etfs
+    
     try:
-        # 下載 2 年歷史數據以確保長天期指標計算無誤
+        # 下載 2 年歷史數據
         data = yf.download(all_tickers, period="2y", group_by='ticker', threads=True, auto_adjust=True)
         return data
     except Exception as e:
@@ -215,14 +231,12 @@ def calculate_market_indicators(data, tickers):
     above_counts = above_ma60.sum(axis=1)
     breadth_pct = (above_counts / valid_counts * 100).fillna(0)
     
-    # B. 52 週新高/新低比率 (Highs / Lows Ratio) - S&P 500 Version
-    # 這是您特別指定的「S&P 500 版」貪婪恐懼指標
+    # B. 52 週新高/新低比率
     roll_max_252 = high_df.rolling(window=252).max()
     roll_min_252 = low_df.rolling(window=252).min()
     new_highs = (high_df >= roll_max_252).sum(axis=1)
     new_lows = (low_df <= roll_min_252).sum(axis=1)
     
-    # 避免除以 0：若新低為 0，設分母為 1
     safe_lows = new_lows.replace(0, 1) 
     nh_nl_ratio = new_highs / safe_lows
     
@@ -233,7 +247,7 @@ def calculate_market_indicators(data, tickers):
     net_adv_dec = advancing - declining
     ad_ma20 = net_adv_dec.rolling(window=20).mean()
     
-    # D. 資產強弱 (報酬率差值)
+    # D. 資產強弱
     sp500_ret_20 = sp500.pct_change(20) * 100
     tlt_ret_20 = tlt.pct_change(20) * 100
     strength_diff = sp500_ret_20 - tlt_ret_20
@@ -252,6 +266,26 @@ def calculate_market_indicators(data, tickers):
         'vix': vix.iloc[-lookback:],
         'vix_ma50': vix_ma50.iloc[-lookback:]
     }
+
+def get_sector_performance(data):
+    """直接計算 ETF 的今日漲跌幅"""
+    sector_changes = {}
+    
+    for name, ticker in SECTOR_ETF_MAP.items():
+        try:
+            if ticker in data:
+                df = data[ticker]
+                # 確保有最新兩日數據
+                df = df.dropna(subset=['Close'])
+                if len(df) >= 2:
+                    curr = df['Close'].iloc[-1]
+                    prev = df['Close'].iloc[-2]
+                    change = ((curr - prev) / prev) * 100
+                    sector_changes[name] = change
+        except:
+            continue
+            
+    return pd.Series(sector_changes).sort_values(ascending=False)
 
 def get_latest_snapshot(data, tickers):
     results = []
@@ -273,7 +307,6 @@ def get_latest_snapshot(data, tickers):
             avg_vol_20 = df['Volume'].iloc[-22:-2].mean()
             r_vol = curr['Volume'] / avg_vol_20 if avg_vol_20 > 0 else 0
             
-            # 52週高低
             high_52w = df['High'].tail(252).max()
             low_52w = df['Low'].tail(252).min()
             
@@ -305,7 +338,7 @@ def main():
         st.cache_data.clear()
         st.rerun()
 
-    with st.spinner('Downloading Market Data (Full S&P 500)...'):
+    with st.spinner('Downloading Market Data (Full S&P 500 + ETFs)...'):
         tickers, sector_map = parse_sector_data()
         full_data = get_market_data(tickers)
     
@@ -318,8 +351,8 @@ def main():
         df_snapshot = get_latest_snapshot(full_data, tickers)
         df_snapshot['Sector'] = df_snapshot['Ticker'].map(sector_map)
         
-        # 計算各產業今日平均漲跌幅 (Today's Average Sector Change)
-        sector_perf = df_snapshot.groupby('Sector')['Change %'].mean().sort_values(ascending=False)
+        # 使用新的函數計算 ETF 真實漲跌幅
+        sector_perf = get_sector_performance(full_data)
 
     # 繪圖 Layout
     fig = make_subplots(
@@ -332,7 +365,7 @@ def main():
             [{"colspan": 2, "secondary_y": True}, None], # R3
             [{"colspan": 2, "secondary_y": True}, None], # R4
             [{"colspan": 2, "secondary_y": True}, None], # R5
-            [{"colspan": 2, "secondary_y": False}, None],# R6: Sector Perf
+            [{"colspan": 2, "secondary_y": False}, None],# R6: Sector Perf (ETF Data)
             [{"type": "table"}, {"type": "table"}],
             [{"type": "table"}, {"type": "table"}],
             [{"type": "table"}, {"type": "table"}],
@@ -345,7 +378,7 @@ def main():
             "市場動能：20日平均淨上漲家數 (Net Adv-Dec) vs S&P 500",
             "資產強弱：(S&P500 20日報酬 - TLT 20日報酬) 差值 (折線圖)",
             "恐慌指數：VIX vs 50日均線",
-            "各產業今日平均漲跌幅 (Today's Sector Performance)",
+            "各產業 ETF 今日漲跌幅 (Sector ETF Performance)",
             "1. 漲幅最強 10 檔", "2. 跌幅最重 10 檔",
             "3. 高波動度", "6. 正乖離過大 (>MA20)",
             "7. 負乖離過大 (<MA20)", "4. 爆量上漲",
@@ -379,7 +412,7 @@ def main():
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix'], name="VIX", line=dict(color='red', width=1)), row=5, col=1, secondary_y=True)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix_ma50'], name="VIX MA50", line=dict(color='darkred', width=1.5, dash='dash')), row=5, col=1, secondary_y=True)
 
-    # R6: Sector Performance (今日漲跌幅)
+    # R6: Sector Performance (ETF Data)
     sect_colors = ['green' if v >= 0 else 'red' for v in sector_perf.values]
     fig.add_trace(go.Bar(
         x=sector_perf.index, 
