@@ -6,191 +6,42 @@ from plotly.subplots import make_subplots
 import datetime
 import numpy as np
 
-# 設定網頁寬度與標題
-st.set_page_config(layout="wide", page_title="S&P 500 Market Dashboard")
+st.set_page_config(layout="wide", page_title="S&P 500 Pro Market Dashboard")
 
 # ==========================================
-# 1. 核心數據定義
+# 1. 核心數據定義 (完整 S&P 500 成分股)
 # ==========================================
 
-# 定義板塊 ETF 代碼對照表 (用於直接抓取精準漲跌幅)
 SECTOR_ETF_MAP = {
-    'XLB (原物料)': 'XLB',
-    'XLC (通訊)': 'XLC',
-    'XLE (能源)': 'XLE',
-    'XLF (金融)': 'XLF',
-    'XLI (工業)': 'XLI',
-    'XLK (科技)': 'XLK',
-    'XLP (必需消費)': 'XLP',
-    'XLRE (房地產)': 'XLRE',
-    'XLU (公用事業)': 'XLU',
-    'XLV (醫療)': 'XLV',
-    'XLY (非必需消費)': 'XLY'
+    'XLB (原物料)': 'XLB', 'XLC (通訊)': 'XLC', 'XLE (能源)': 'XLE',
+    'XLF (金融)': 'XLF', 'XLI (工業)': 'XLI', 'XLK (科技)': 'XLK',
+    'XLP (必需消費)': 'XLP', 'XLRE (房地產)': 'XLRE', 'XLU (公用事業)': 'XLU',
+    'XLV (醫療)': 'XLV', 'XLY (非必需消費)': 'XLY'
 }
 
+# 為了確保廣度指標 (TRIN, A/D Line) 的準確性，這裡列出完整的 S&P 500 成分股清單
 RAW_SECTOR_DATA = {
-    'XLB (原物料)': [
-        {'Symbol': 'LIN'}, {'Symbol': 'NEM'}, {'Symbol': 'SHW'}, {'Symbol': 'ECL'},
-        {'Symbol': 'NUE'}, {'Symbol': 'FCX'}, {'Symbol': 'DD'}, {'Symbol': 'VMC'},
-        {'Symbol': 'MLM'}, {'Symbol': 'APD'}, {'Symbol': 'CTVA'}, {'Symbol': 'IP'},
-        {'Symbol': 'STLD'}, {'Symbol': 'PPG'}, {'Symbol': 'SW'}, {'Symbol': 'AMCR'},
-        {'Symbol': 'DOW'}, {'Symbol': 'PKG'}, {'Symbol': 'IFF'}, {'Symbol': 'AVY'},
-        {'Symbol': 'CF'}, {'Symbol': 'BALL'}, {'Symbol': 'LYB'}, {'Symbol': 'ALB'},
-        {'Symbol': 'MOS'}, {'Symbol': 'EMN'},
-    ],
-    'XLC (通訊)': [
-        {'Symbol': 'META'}, {'Symbol': 'GOOGL'}, {'Symbol': 'GOOG'}, {'Symbol': 'WBD'},
-        {'Symbol': 'NFLX'}, {'Symbol': 'EA'}, {'Symbol': 'TTWO'}, {'Symbol': 'DIS'},
-        {'Symbol': 'VZ'}, {'Symbol': 'CMCSA'}, {'Symbol': 'TMUS'}, {'Symbol': 'T'},
-        {'Symbol': 'LYV'}, {'Symbol': 'CHTR'}, {'Symbol': 'TTD'}, {'Symbol': 'OMC'},
-        {'Symbol': 'TKO'}, {'Symbol': 'FOXA'}, {'Symbol': 'NWSA'}, {'Symbol': 'IPG'},
-        {'Symbol': 'FOX'}, {'Symbol': 'MTCH'}, {'Symbol': 'PSKY'}, {'Symbol': 'NWS'},
-    ],
-    'XLE (能源)': [
-        {'Symbol': 'XOM'}, {'Symbol': 'CVX'}, {'Symbol': 'COP'}, {'Symbol': 'WMB'},
-        {'Symbol': 'MPC'}, {'Symbol': 'EOG'}, {'Symbol': 'PSX'}, {'Symbol': 'SLB'},
-        {'Symbol': 'VLO'}, {'Symbol': 'KMI'}, {'Symbol': 'BKR'}, {'Symbol': 'OKE'},
-        {'Symbol': 'TRGP'}, {'Symbol': 'EQT'}, {'Symbol': 'OXY'}, {'Symbol': 'FANG'},
-        {'Symbol': 'EXE'}, {'Symbol': 'HAL'}, {'Symbol': 'DVN'}, {'Symbol': 'TPL'},
-        {'Symbol': 'CTRA'}, {'Symbol': 'APA'},
-    ],
-    'XLF (金融)': [
-        {'Symbol': 'BRK-B'}, {'Symbol': 'JPM'}, {'Symbol': 'V'}, {'Symbol': 'MA'},
-        {'Symbol': 'BAC'}, {'Symbol': 'WFC'}, {'Symbol': 'GS'}, {'Symbol': 'MS'},
-        {'Symbol': 'AXP'}, {'Symbol': 'C'}, {'Symbol': 'SCHW'}, {'Symbol': 'BLK'},
-        {'Symbol': 'SPGI'}, {'Symbol': 'COF'}, {'Symbol': 'PGR'}, {'Symbol': 'HOOD'},
-        {'Symbol': 'BX'}, {'Symbol': 'CB'}, {'Symbol': 'CME'}, {'Symbol': 'MMC'},
-        {'Symbol': 'ICE'}, {'Symbol': 'KKR'}, {'Symbol': 'COIN'}, {'Symbol': 'BK'},
-        {'Symbol': 'MCO'}, {'Symbol': 'USB'}, {'Symbol': 'PNC'}, {'Symbol': 'AON'},
-        {'Symbol': 'AJG'}, {'Symbol': 'PYPL'}, {'Symbol': 'TRV'}, {'Symbol': 'APO'},
-        {'Symbol': 'TFC'}, {'Symbol': 'AFL'}, {'Symbol': 'ALL'}, {'Symbol': 'AMP'},
-        {'Symbol': 'MSCI'}, {'Symbol': 'MET'}, {'Symbol': 'AIG'}, {'Symbol': 'SQ'},
-        {'Symbol': 'NDAQ'}, {'Symbol': 'FI'}, {'Symbol': 'PRU'}, {'Symbol': 'HIG'},
-        {'Symbol': 'STT'}, {'Symbol': 'FIS'}, {'Symbol': 'ACGL'}, {'Symbol': 'WTW'},
-        {'Symbol': 'IBKR'}, {'Symbol': 'MTB'}, {'Symbol': 'RJF'}, {'Symbol': 'FITB'},
-        {'Symbol': 'SYF'}, {'Symbol': 'NTRS'}, {'Symbol': 'CBOE'}, {'Symbol': 'HBAN'},
-        {'Symbol': 'CINF'}, {'Symbol': 'BRO'}, {'Symbol': 'TROW'}, {'Symbol': 'CFG'},
-        {'Symbol': 'RF'}, {'Symbol': 'WRB'}, {'Symbol': 'GPN'}, {'Symbol': 'CPAY'},
-        {'Symbol': 'PFG'}, {'Symbol': 'L'}, {'Symbol': 'KEY'}, {'Symbol': 'EG'},
-        {'Symbol': 'JKHY'}, {'Symbol': 'IVZ'}, {'Symbol': 'GL'}, {'Symbol': 'AIZ'},
-        {'Symbol': 'FDS'}, {'Symbol': 'ERIE'}, {'Symbol': 'BEN'},
-    ],
-    'XLI (工業)': [
-        {'Symbol': 'GE'}, {'Symbol': 'CAT'}, {'Symbol': 'RTX'}, {'Symbol': 'UBER'},
-        {'Symbol': 'BA'}, {'Symbol': 'GEV'}, {'Symbol': 'ETN'}, {'Symbol': 'HON'},
-        {'Symbol': 'UNP'}, {'Symbol': 'DE'}, {'Symbol': 'ADP'}, {'Symbol': 'LMT'},
-        {'Symbol': 'PH'}, {'Symbol': 'TT'}, {'Symbol': 'MMM'}, {'Symbol': 'GD'},
-        {'Symbol': 'HWM'}, {'Symbol': 'NOC'}, {'Symbol': 'EMR'}, {'Symbol': 'JCI'},
-        {'Symbol': 'TDG'}, {'Symbol': 'WM'}, {'Symbol': 'UPS'}, {'Symbol': 'PWR'},
-        {'Symbol': 'CSX'}, {'Symbol': 'ITW'}, {'Symbol': 'CTAS'}, {'Symbol': 'NSC'},
-        {'Symbol': 'CMI'}, {'Symbol': 'AXON'}, {'Symbol': 'URI'}, {'Symbol': 'FDX'},
-        {'Symbol': 'LHX'}, {'Symbol': 'PCAR'}, {'Symbol': 'CARR'}, {'Symbol': 'FAST'},
-        {'Symbol': 'RSG'}, {'Symbol': 'AME'}, {'Symbol': 'GWW'}, {'Symbol': 'ROK'},
-        {'Symbol': 'DAL'}, {'Symbol': 'PAYX'}, {'Symbol': 'CPRT'}, {'Symbol': 'XYL'},
-        {'Symbol': 'OTIS'}, {'Symbol': 'EME'}, {'Symbol': 'WAB'}, {'Symbol': 'UAL'},
-        {'Symbol': 'VRSK'}, {'Symbol': 'IR'}, {'Symbol': 'EFX'}, {'Symbol': 'BR'},
-        {'Symbol': 'ODFL'}, {'Symbol': 'HUBB'}, {'Symbol': 'DOV'}, {'Symbol': 'VLTO'},
-        {'Symbol': 'LDOS'}, {'Symbol': 'J'}, {'Symbol': 'PNR'}, {'Symbol': 'SNA'},
-        {'Symbol': 'FTV'}, {'Symbol': 'LUV'}, {'Symbol': 'EXPD'}, {'Symbol': 'LII'},
-        {'Symbol': 'CHRW'}, {'Symbol': 'ROL'}, {'Symbol': 'TXT'}, {'Symbol': 'ALLE'},
-        {'Symbol': 'MAS'}, {'Symbol': 'IEX'}, {'Symbol': 'JBHT'}, {'Symbol': 'BLDR'},
-        {'Symbol': 'NDSN'}, {'Symbol': 'HII'}, {'Symbol': 'DAY'}, {'Symbol': 'SWK'},
-        {'Symbol': 'GNRC'}, {'Symbol': 'PAYC'}, {'Symbol': 'AOS'},
-    ],
-    'XLK (科技)': [
-        {'Symbol': 'NVDA'}, {'Symbol': 'MSFT'}, {'Symbol': 'AAPL'}, {'Symbol': 'AVGO'},
-        {'Symbol': 'PLTR'}, {'Symbol': 'AMD'}, {'Symbol': 'ORCL'}, {'Symbol': 'IBM'},
-        {'Symbol': 'CSCO'}, {'Symbol': 'MU'}, {'Symbol': 'CRM'}, {'Symbol': 'LRCX'},
-        {'Symbol': 'QCOM'}, {'Symbol': 'NOW'}, {'Symbol': 'AMAT'}, {'Symbol': 'INTU'},
-        {'Symbol': 'INTC'}, {'Symbol': 'APP'}, {'Symbol': 'APH'}, {'Symbol': 'ANET'},
-        {'Symbol': 'KLAC'}, {'Symbol': 'ACN'}, {'Symbol': 'TXN'}, {'Symbol': 'PANW'},
-        {'Symbol': 'ADBE'}, {'Symbol': 'CRWD'}, {'Symbol': 'ADI'}, {'Symbol': 'CDNS'},
-        {'Symbol': 'SNPS'}, {'Symbol': 'MSI'}, {'Symbol': 'TEL'}, {'Symbol': 'GLW'},
-        {'Symbol': 'ADSK'}, {'Symbol': 'STX'}, {'Symbol': 'FTNT'}, {'Symbol': 'MPWR'},
-        {'Symbol': 'NXPI'}, {'Symbol': 'DDOG'}, {'Symbol': 'WDAY'}, {'Symbol': 'DELL'},
-        {'Symbol': 'WDC'}, {'Symbol': 'ROP'}, {'Symbol': 'FICO'}, {'Symbol': 'CTSH'},
-        {'Symbol': 'MCHP'}, {'Symbol': 'HPE'}, {'Symbol': 'KEYS'}, {'Symbol': 'TER'},
-        {'Symbol': 'SMCI'}, {'Symbol': 'HPQ'}, {'Symbol': 'FSLR'}, {'Symbol': 'TDY'},
-        {'Symbol': 'JBL'}, {'Symbol': 'PTC'}, {'Symbol': 'NTAP'}, {'Symbol': 'ON'},
-        {'Symbol': 'TYL'}, {'Symbol': 'CDW'}, {'Symbol': 'VRSN'}, {'Symbol': 'IT'},
-        {'Symbol': 'TRMB'}, {'Symbol': 'GDDY'}, {'Symbol': 'FFIV'}, {'Symbol': 'GEN'},
-        {'Symbol': 'ZBRA'}, {'Symbol': 'SWKS'}, {'Symbol': 'AKAM'}, {'Symbol': 'EPAM'},
-    ],
-    'XLP (必需消費)': [
-        {'Symbol': 'WMT'}, {'Symbol': 'COST'}, {'Symbol': 'PG'}, {'Symbol': 'KO'},
-        {'Symbol': 'PM'}, {'Symbol': 'PEP'}, {'Symbol': 'MO'}, {'Symbol': 'MDLZ'},
-        {'Symbol': 'CL'}, {'Symbol': 'MNST'}, {'Symbol': 'TGT'}, {'Symbol': 'KR'},
-        {'Symbol': 'KMB'}, {'Symbol': 'KDP'}, {'Symbol': 'SYY'}, {'Symbol': 'ADM'},
-        {'Symbol': 'KVUE'}, {'Symbol': 'HSY'}, {'Symbol': 'GIS'}, {'Symbol': 'EL'},
-        {'Symbol': 'K'}, {'Symbol': 'DG'}, {'Symbol': 'KHC'}, {'Symbol': 'CHD'},
-        {'Symbol': 'DLTR'}, {'Symbol': 'STZ'}, {'Symbol': 'MKC'}, {'Symbol': 'TSN'},
-        {'Symbol': 'CLX'}, {'Symbol': 'BG'}, {'Symbol': 'SJM'}, {'Symbol': 'LW'},
-        {'Symbol': 'CAG'}, {'Symbol': 'TAP'}, {'Symbol': 'HRL'}, {'Symbol': 'CPB'},
-        {'Symbol': 'BF-B'},
-    ],
-    'XLRE (房地產)': [
-        {'Symbol': 'WELL'}, {'Symbol': 'PLD'}, {'Symbol': 'AMT'}, {'Symbol': 'EQIX'},
-        {'Symbol': 'SPG'}, {'Symbol': 'PSA'}, {'Symbol': 'O'}, {'Symbol': 'DLR'},
-        {'Symbol': 'CBRE'}, {'Symbol': 'CCI'}, {'Symbol': 'VTR'}, {'Symbol': 'VICI'},
-        {'Symbol': 'EXR'}, {'Symbol': 'IRM'}, {'Symbol': 'CSGP'}, {'Symbol': 'AVB'},
-        {'Symbol': 'EQR'}, {'Symbol': 'SBAC'}, {'Symbol': 'WY'}, {'Symbol': 'ESS'},
-        {'Symbol': 'INVH'}, {'Symbol': 'MAA'}, {'Symbol': 'KIM'}, {'Symbol': 'DOC'},
-        {'Symbol': 'REG'}, {'Symbol': 'HST'}, {'Symbol': 'CPT'}, {'Symbol': 'BXP'},
-        {'Symbol': 'UDR'}, {'Symbol': 'ARE'}, {'Symbol': 'FRT'},
-    ],
-    'XLU (公用事業)': [
-        {'Symbol': 'NEE'}, {'Symbol': 'CEG'}, {'Symbol': 'SO'}, {'Symbol': 'DUK'},
-        {'Symbol': 'AEP'}, {'Symbol': 'VST'}, {'Symbol': 'SRE'}, {'Symbol': 'D'},
-        {'Symbol': 'EXC'}, {'Symbol': 'XEL'}, {'Symbol': 'ETR'}, {'Symbol': 'PEG'},
-        {'Symbol': 'WEC'}, {'Symbol': 'ED'}, {'Symbol': 'PCG'}, {'Symbol': 'NRG'},
-        {'Symbol': 'DTE'}, {'Symbol': 'AEE'}, {'Symbol': 'ATO'}, {'Symbol': 'ES'},
-        {'Symbol': 'PPL'}, {'Symbol': 'CNP'}, {'Symbol': 'AWK'}, {'Symbol': 'FE'},
-        {'Symbol': 'CMS'}, {'Symbol': 'EIX'}, {'Symbol': 'NI'}, {'Symbol': 'EVRG'},
-        {'Symbol': 'LNT'}, {'Symbol': 'PNW'}, {'Symbol': 'AES'},
-    ],
-    'XLV (醫療)': [
-        {'Symbol': 'LLY'}, {'Symbol': 'JNJ'}, {'Symbol': 'ABBV'}, {'Symbol': 'UNH'},
-        {'Symbol': 'ABT'}, {'Symbol': 'MRK'}, {'Symbol': 'TMO'}, {'Symbol': 'ISRG'},
-        {'Symbol': 'AMGN'}, {'Symbol': 'BSX'}, {'Symbol': 'GILD'}, {'Symbol': 'PFE'},
-        {'Symbol': 'DHR'}, {'Symbol': 'SYK'}, {'Symbol': 'MDT'}, {'Symbol': 'VRTX'},
-        {'Symbol': 'CVS'}, {'Symbol': 'MCK'}, {'Symbol': 'BMY'}, {'Symbol': 'CI'},
-        {'Symbol': 'HCA'}, {'Symbol': 'ELV'}, {'Symbol': 'REGN'}, {'Symbol': 'COR'},
-        {'Symbol': 'ZTS'}, {'Symbol': 'BDX'}, {'Symbol': 'IDXX'}, {'Symbol': 'EW'},
-        {'Symbol': 'A'}, {'Symbol': 'CAH'}, {'Symbol': 'RMD'}, {'Symbol': 'IQV'},
-        {'Symbol': 'GEHC'}, {'Symbol': 'HUM'}, {'Symbol': 'MTD'}, {'Symbol': 'DXCM'},
-        {'Symbol': 'STE'}, {'Symbol': 'PODD'}, {'Symbol': 'BIIB'}, {'Symbol': 'LH'},
-        {'Symbol': 'WST'}, {'Symbol': 'WAT'}, {'Symbol': 'ZBH'}, {'Symbol': 'DGX'},
-        {'Symbol': 'CNC'}, {'Symbol': 'HOLX'}, {'Symbol': 'INCY'}, {'Symbol': 'COO'},
-        {'Symbol': 'UHS'}, {'Symbol': 'VTRS'}, {'Symbol': 'BAX'}, {'Symbol': 'RVTY'},
-        {'Symbol': 'SOLV'}, {'Symbol': 'TECH'}, {'Symbol': 'ALGN'}, {'Symbol': 'CRL'},
-        {'Symbol': 'MOH'}, {'Symbol': 'MRNA'}, {'Symbol': 'HSIC'}, {'Symbol': 'DVA'},
-    ],
-    'XLY (非必需消費)': [
-        {'Symbol': 'AMZN'}, {'Symbol': 'TSLA'}, {'Symbol': 'HD'}, {'Symbol': 'MCD'},
-        {'Symbol': 'BKNG'}, {'Symbol': 'TJX'}, {'Symbol': 'LOW'}, {'Symbol': 'DASH'},
-        {'Symbol': 'SBUX'}, {'Symbol': 'ORLY'}, {'Symbol': 'NKE'}, {'Symbol': 'RCL'},
-        {'Symbol': 'GM'}, {'Symbol': 'AZO'}, {'Symbol': 'HLT'}, {'Symbol': 'MAR'},
-        {'Symbol': 'ABNB'}, {'Symbol': 'CMG'}, {'Symbol': 'ROST'}, {'Symbol': 'F'},
-        {'Symbol': 'EBAY'}, {'Symbol': 'DHI'}, {'Symbol': 'YUM'}, {'Symbol': 'GRMN'},
-        {'Symbol': 'CCL'}, {'Symbol': 'TSCO'}, {'Symbol': 'LEN'}, {'Symbol': 'EXPE'},
-        {'Symbol': 'WSM'}, {'Symbol': 'TPR'}, {'Symbol': 'PHM'}, {'Symbol': 'ULTA'},
-        {'Symbol': 'DRI'}, {'Symbol': 'NVR'}, {'Symbol': 'APTV'}, {'Symbol': 'LULU'},
-        {'Symbol': 'LVS'}, {'Symbol': 'GPC'}, {'Symbol': 'BBY'}, {'Symbol': 'DPZ'},
-        {'Symbol': 'RL'}, {'Symbol': 'DECK'}, {'Symbol': 'HAS'}, {'Symbol': 'WYNN'},
-        {'Symbol': 'NCLH'}, {'Symbol': 'POOL'}, {'Symbol': 'LKQ'}, {'Symbol': 'KMX'},
-        {'Symbol': 'MGM'}, {'Symbol': 'MHK'},
-    ]
+    'XLB': ['LIN', 'NEM', 'SHW', 'ECL', 'NUE', 'FCX', 'DD', 'VMC', 'MLM', 'APD', 'CTVA', 'IP', 'STLD', 'PPG', 'SW', 'AMCR', 'DOW', 'PKG', 'IFF', 'AVY', 'CF', 'BALL', 'LYB', 'ALB', 'MOS', 'EMN'],
+    'XLC': ['META', 'GOOGL', 'GOOG', 'WBD', 'NFLX', 'EA', 'TTWO', 'DIS', 'VZ', 'CMCSA', 'TMUS', 'T', 'LYV', 'CHTR', 'TTD', 'OMC', 'TKO', 'FOXA', 'NWSA', 'IPG', 'FOX', 'MTCH', 'PSKY', 'NWS'],
+    'XLE': ['XOM', 'CVX', 'COP', 'WMB', 'MPC', 'EOG', 'PSX', 'SLB', 'VLO', 'KMI', 'BKR', 'OKE', 'TRGP', 'EQT', 'OXY', 'FANG', 'EXE', 'HAL', 'DVN', 'TPL', 'CTRA', 'APA'],
+    'XLF': ['BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'C', 'SCHW', 'BLK', 'SPGI', 'COF', 'PGR', 'HOOD', 'BX', 'CB', 'CME', 'MMC', 'ICE', 'KKR', 'COIN', 'BK', 'MCO', 'USB', 'PNC', 'AON', 'AJG', 'PYPL', 'TRV', 'APO', 'TFC', 'AFL', 'ALL', 'AMP', 'MSCI', 'MET', 'AIG', 'SQ', 'NDAQ', 'FI', 'PRU', 'HIG', 'STT', 'FIS', 'ACGL', 'WTW', 'IBKR', 'MTB', 'RJF', 'FITB', 'SYF', 'NTRS', 'CBOE', 'HBAN', 'CINF', 'BRO', 'TROW', 'CFG', 'RF', 'WRB', 'GPN', 'CPAY', 'PFG', 'L', 'KEY', 'EG', 'JKHY', 'IVZ', 'GL', 'AIZ', 'FDS', 'ERIE', 'BEN'],
+    'XLI': ['GE', 'CAT', 'RTX', 'UBER', 'BA', 'GEV', 'ETN', 'HON', 'UNP', 'DE', 'ADP', 'LMT', 'PH', 'TT', 'MMM', 'GD', 'HWM', 'NOC', 'EMR', 'JCI', 'TDG', 'WM', 'UPS', 'PWR', 'CSX', 'ITW', 'CTAS', 'NSC', 'CMI', 'AXON', 'URI', 'FDX', 'LHX', 'PCAR', 'CARR', 'FAST', 'RSG', 'AME', 'GWW', 'ROK', 'DAL', 'PAYX', 'CPRT', 'XYL', 'OTIS', 'EME', 'WAB', 'UAL', 'VRSK', 'IR', 'EFX', 'BR', 'ODFL', 'HUBB', 'DOV', 'VLTO', 'LDOS', 'J', 'PNR', 'SNA', 'FTV', 'LUV', 'EXPD', 'LII', 'CHRW', 'ROL', 'TXT', 'ALLE', 'MAS', 'IEX', 'JBHT', 'BLDR', 'NDSN', 'HII', 'DAY', 'SWK', 'GNRC', 'PAYC', 'AOS'],
+    'XLK': ['NVDA', 'MSFT', 'AAPL', 'AVGO', 'PLTR', 'AMD', 'ORCL', 'IBM', 'CSCO', 'MU', 'CRM', 'LRCX', 'QCOM', 'NOW', 'AMAT', 'INTU', 'INTC', 'APP', 'APH', 'ANET', 'KLAC', 'ACN', 'TXN', 'PANW', 'ADBE', 'CRWD', 'ADI', 'CDNS', 'SNPS', 'MSI', 'TEL', 'GLW', 'ADSK', 'STX', 'FTNT', 'MPWR', 'NXPI', 'DDOG', 'WDAY', 'DELL', 'WDC', 'ROP', 'FICO', 'CTSH', 'MCHP', 'HPE', 'KEYS', 'TER', 'SMCI', 'HPQ', 'FSLR', 'TDY', 'JBL', 'PTC', 'NTAP', 'ON', 'TYL', 'CDW', 'VRSN', 'IT', 'TRMB', 'GDDY', 'FFIV', 'GEN', 'ZBRA', 'SWKS', 'AKAM', 'EPAM'],
+    'XLP': ['WMT', 'COST', 'PG', 'KO', 'PM', 'PEP', 'MO', 'MDLZ', 'CL', 'MNST', 'TGT', 'KR', 'KMB', 'KDP', 'SYY', 'ADM', 'KVUE', 'HSY', 'GIS', 'EL', 'K', 'DG', 'KHC', 'CHD', 'DLTR', 'STZ', 'MKC', 'TSN', 'CLX', 'BG', 'SJM', 'LW', 'CAG', 'TAP', 'HRL', 'CPB', 'BF-B'],
+    'XLRE': ['WELL', 'PLD', 'AMT', 'EQIX', 'SPG', 'PSA', 'O', 'DLR', 'CBRE', 'CCI', 'VTR', 'VICI', 'EXR', 'IRM', 'CSGP', 'AVB', 'EQR', 'SBAC', 'WY', 'ESS', 'INVH', 'MAA', 'KIM', 'DOC', 'REG', 'HST', 'CPT', 'BXP', 'UDR', 'ARE', 'FRT'],
+    'XLU': ['NEE', 'CEG', 'SO', 'DUK', 'AEP', 'VST', 'SRE', 'D', 'EXC', 'XEL', 'ETR', 'PEG', 'WEC', 'ED', 'PCG', 'NRG', 'DTE', 'AEE', 'ATO', 'ES', 'PPL', 'CNP', 'AWK', 'FE', 'CMS', 'EIX', 'NI', 'EVRG', 'LNT', 'PNW', 'AES'],
+    'XLV': ['LLY', 'JNJ', 'ABBV', 'UNH', 'ABT', 'MRK', 'TMO', 'ISRG', 'AMGN', 'BSX', 'GILD', 'PFE', 'DHR', 'SYK', 'MDT', 'VRTX', 'CVS', 'MCK', 'BMY', 'CI', 'HCA', 'ELV', 'REGN', 'COR', 'ZTS', 'BDX', 'IDXX', 'EW', 'A', 'CAH', 'RMD', 'IQV', 'GEHC', 'HUM', 'MTD', 'DXCM', 'STE', 'PODD', 'BIIB', 'LH', 'WST', 'WAT', 'ZBH', 'DGX', 'CNC', 'HOLX', 'INCY', 'COO', 'UHS', 'VTRS', 'BAX', 'RVTY', 'SOLV', 'TECH', 'ALGN', 'CRL', 'MOH', 'MRNA', 'HSIC', 'DVA'],
+    'XLY': ['AMZN', 'TSLA', 'HD', 'MCD', 'BKNG', 'TJX', 'LOW', 'DASH', 'SBUX', 'ORLY', 'NKE', 'RCL', 'GM', 'AZO', 'HLT', 'MAR', 'ABNB', 'CMG', 'ROST', 'F', 'EBAY', 'DHI', 'YUM', 'GRMN', 'CCL', 'TSCO', 'LEN', 'EXPE', 'WSM', 'TPR', 'PHM', 'ULTA', 'DRI', 'NVR', 'APTV', 'LULU', 'LVS', 'GPC', 'BBY', 'DPZ', 'RL', 'DECK', 'HAS', 'WYNN', 'NCLH', 'POOL', 'LKQ', 'KMX', 'MGM', 'MHK']
 }
 
 @st.cache_data(ttl=3600)
 def parse_sector_data():
     tickers = []
     sector_map = {}
-    for sector, stocks in RAW_SECTOR_DATA.items():
-        for stock in stocks:
-            sym = stock['Symbol']
-            tickers.append(sym)
-            sector_map[sym] = sector
+    for sec, stocks in RAW_SECTOR_DATA.items():
+        for s in stocks:
+            tickers.append(s)
+            sector_map[s] = sec
     return list(set(tickers)), sector_map
 
 # ==========================================
@@ -199,12 +50,11 @@ def parse_sector_data():
 
 @st.cache_data(ttl=3600)
 def get_market_data(tickers):
-    # 新增下載 11 大板塊 ETF 的報價
+    # 增加 ^VIX3M 用於計算期限結構
     sector_etfs = list(SECTOR_ETF_MAP.values())
-    all_tickers = tickers + ['^GSPC', 'TLT', '^VIX'] + sector_etfs
-    
+    all_tickers = tickers + ['^GSPC', 'TLT', '^VIX', '^VIX3M'] + sector_etfs
     try:
-        # 下載 2 年歷史數據
+        # 下載 2 年數據
         data = yf.download(all_tickers, period="2y", group_by='ticker', threads=True, auto_adjust=True)
         return data
     except Exception as e:
@@ -212,17 +62,19 @@ def get_market_data(tickers):
         return pd.DataFrame()
 
 def calculate_market_indicators(data, tickers):
-    # 1. 準備基準數據
     sp500 = data['^GSPC']['Close']
     tlt = data['TLT']['Close']
     vix = data['^VIX']['Close']
-    benchmark_idx = sp500.index
+    vix3m = data['^VIX3M']['Close'] 
     
-    # 2. 建立個股矩陣
+    benchmark_idx = sp500.index
     valid_tickers = [t for t in tickers if t in data]
+    
+    # 建立矩陣
     close_df = pd.DataFrame({t: data[t]['Close'] for t in valid_tickers}).reindex(benchmark_idx)
     high_df = pd.DataFrame({t: data[t]['High'] for t in valid_tickers}).reindex(benchmark_idx)
     low_df = pd.DataFrame({t: data[t]['Low'] for t in valid_tickers}).reindex(benchmark_idx)
+    volume_df = pd.DataFrame({t: data[t]['Volume'] for t in valid_tickers}).reindex(benchmark_idx)
     
     # A. 市場廣度 (MA60)
     ma60_df = close_df.rolling(window=60).mean()
@@ -231,51 +83,99 @@ def calculate_market_indicators(data, tickers):
     above_counts = above_ma60.sum(axis=1)
     breadth_pct = (above_counts / valid_counts * 100).fillna(0)
     
-    # B. 52 週新高/新低比率
+    # B. 累積淨新高
     roll_max_252 = high_df.rolling(window=252).max()
     roll_min_252 = low_df.rolling(window=252).min()
     new_highs = (high_df >= roll_max_252).sum(axis=1)
     new_lows = (low_df <= roll_min_252).sum(axis=1)
+    net_nh_nl = new_highs - new_lows
+    cum_net_highs = net_nh_nl.cumsum()
     
-    safe_lows = new_lows.replace(0, 1) 
-    nh_nl_ratio = new_highs / safe_lows
-    
-    # C. 騰落指標 (A/D Line 20MA)
-    daily_change = close_df.diff()
-    advancing = (daily_change > 0).sum(axis=1)
-    declining = (daily_change < 0).sum(axis=1)
-    net_adv_dec = advancing - declining
-    ad_ma20 = net_adv_dec.rolling(window=20).mean()
+    # C. VIX 期限結構
+    vix_term_structure = vix / vix3m
     
     # D. 資產強弱
-    sp500_ret_20 = sp500.pct_change(20) * 100
-    tlt_ret_20 = tlt.pct_change(20) * 100
-    strength_diff = sp500_ret_20 - tlt_ret_20
+    sp500_ret = sp500.pct_change(20) * 100
+    tlt_ret = tlt.pct_change(20) * 100
+    strength_diff = sp500_ret - tlt_ret
+
+    # E. TRIN (Arms Index) - 新增指標
+    # 計算公式: (上漲家數/下跌家數) / (上漲成交量/下跌成交量)
+    daily_change = close_df.diff()
     
-    # E. VIX
-    vix_ma50 = vix.rolling(window=50).mean()
+    # 上漲/下跌 遮罩
+    up_mask = daily_change > 0
+    down_mask = daily_change < 0
+    
+    # 上漲/下跌 家數
+    advancing_issues = up_mask.sum(axis=1)
+    declining_issues = down_mask.sum(axis=1)
+    
+    # 上漲/下跌 成交量
+    advancing_volume = (volume_df * up_mask).sum(axis=1)
+    declining_volume = (volume_df * down_mask).sum(axis=1)
+    
+    # 計算比率 (避免除以0)
+    ad_ratio = advancing_issues / declining_issues.replace(0, 1)
+    vol_ratio = advancing_volume / declining_volume.replace(0, 1)
+    
+    trin = ad_ratio / vol_ratio
+    
+    # 簡單移動平均平滑 TRIN (例如 10日) 讓趨勢更明顯，但通常看單日極值
+    # 這裡保留原始 TRIN 供觀察極值
 
     lookback = 130
     return {
         'dates': sp500.index[-lookback:],
         'sp500': sp500.iloc[-lookback:],
         'breadth_pct': breadth_pct.iloc[-lookback:],
-        'nh_nl_ratio': nh_nl_ratio.iloc[-lookback:], 
-        'ad_ma20': ad_ma20.iloc[-lookback:],
+        'cum_net_highs': cum_net_highs.iloc[-lookback:], 
+        'vix_term': vix_term_structure.iloc[-lookback:], 
         'strength_diff': strength_diff.iloc[-lookback:],
         'vix': vix.iloc[-lookback:],
-        'vix_ma50': vix_ma50.iloc[-lookback:]
+        'trin': trin.iloc[-lookback:] # 新增
     }
 
-def get_sector_performance(data):
-    """直接計算 ETF 的今日漲跌幅"""
-    sector_changes = {}
+def calculate_rrg_data(data):
+    sp500 = data['^GSPC']['Close']
+    rrg_data = []
     
+    for name, ticker in SECTOR_ETF_MAP.items():
+        if ticker in data:
+            sector_close = data[ticker]['Close']
+            rs = sector_close / sp500
+            rs_trend = rs.rolling(window=10).mean()
+            rs_mean = rs_trend.rolling(window=60).mean()
+            rs_std = rs_trend.rolling(window=60).std()
+            x_val = ((rs_trend - rs_mean) / rs_std).iloc[-1]
+            x_val_prev = ((rs_trend - rs_mean) / rs_std).iloc[-10]
+            y_val = x_val - x_val_prev
+            
+            # 產業今日漲跌 (ETF)
+            df = data[ticker]
+            df = df.dropna(subset=['Close'])
+            if len(df) >= 2:
+                curr = df['Close'].iloc[-1]
+                prev = df['Close'].iloc[-2]
+                chg = ((curr - prev) / prev) * 100
+            else:
+                chg = 0
+            
+            rrg_data.append({
+                'Sector': name.split(' ')[0],
+                'X': x_val,
+                'Y': y_val,
+                'Change': chg
+            })
+    return pd.DataFrame(rrg_data)
+
+def get_sector_performance(data):
+    """計算 ETF 的今日漲跌幅"""
+    sector_changes = {}
     for name, ticker in SECTOR_ETF_MAP.items():
         try:
             if ticker in data:
                 df = data[ticker]
-                # 確保有最新兩日數據
                 df = df.dropna(subset=['Close'])
                 if len(df) >= 2:
                     curr = df['Close'].iloc[-1]
@@ -284,104 +184,137 @@ def get_sector_performance(data):
                     sector_changes[name] = change
         except:
             continue
-            
     return pd.Series(sector_changes).sort_values(ascending=False)
 
-def get_latest_snapshot(data, tickers):
+def get_latest_snapshot_with_strategy(data, tickers):
     results = []
     for ticker in tickers:
         try:
             if ticker not in data: continue
             df = data[ticker]
             df = df.dropna(subset=['Close', 'Volume'])
-            if df.empty or len(df) < 252: continue 
+            if df.empty or len(df) < 252: continue
             
             curr = df.iloc[-1]
             prev = df.iloc[-2]
+            close = float(curr['Close'])
             
-            change_pct = ((curr['Close'] - prev['Close']) / prev['Close']) * 100
-            turnover = curr['Close'] * curr['Volume']
-            ma20 = float(df['Close'].rolling(20).mean().iloc[-1])
-            bias_20 = ((curr['Close'] - ma20) / ma20) * 100
-            volatility = ((curr['High'] - curr['Low']) / prev['Close']) * 100
-            avg_vol_20 = df['Volume'].iloc[-22:-2].mean()
-            r_vol = curr['Volume'] / avg_vol_20 if avg_vol_20 > 0 else 0
+            change_pct = ((close - prev['Close']) / prev['Close']) * 100
+            turnover = close * float(curr['Volume'])
+            
+            ma50 = df['Close'].rolling(50).mean().iloc[-1]
+            ma150 = df['Close'].rolling(150).mean().iloc[-1]
+            ma200 = df['Close'].rolling(200).mean().iloc[-1]
             
             high_52w = df['High'].tail(252).max()
             low_52w = df['Low'].tail(252).min()
             
+            # 策略 1: 趨勢模板
+            trend_score = 0
+            if close > ma50 > ma150 > ma200: trend_score += 1
+            if close > low_52w * 1.3: trend_score += 1
+            if close > high_52w * 0.75: trend_score += 1
+            is_super_trend = (trend_score == 3)
+            
+            # 策略 2: 口袋支點
+            is_pocket_pivot = False
+            if change_pct > 0:
+                last_10 = df.iloc[-11:-1]
+                down_days = last_10[last_10['Close'] < last_10['Open']]
+                if not down_days.empty:
+                    max_down_vol = down_days['Volume'].max()
+                    if curr['Volume'] > max_down_vol:
+                        is_pocket_pivot = True
+                elif curr['Volume'] > last_10['Volume'].max():
+                     is_pocket_pivot = True
+
+            # RVol
+            avg_vol_20 = df['Volume'].iloc[-22:-2].mean()
+            r_vol = curr['Volume'] / avg_vol_20 if avg_vol_20 > 0 else 0
+            
+            # Bias & Volatility (For Basic Scanners)
+            ma20 = float(df['Close'].rolling(20).mean().iloc[-1])
+            bias_20 = ((close - ma20) / ma20) * 100
+            volatility = ((curr['High'] - curr['Low']) / prev['Close']) * 100
+
             results.append({
                 'Ticker': ticker,
-                'Close': curr['Close'],
+                'Close': close,
                 'Change %': change_pct,
                 'Turnover': turnover,
-                'Bias 20(%)': bias_20,
-                'Volatility': volatility,
                 'RVol': r_vol,
                 '52W High': high_52w,
-                '52W Low': low_52w
+                '52W Low': low_52w,
+                'Super Trend': is_super_trend,
+                'Pocket Pivot': is_pocket_pivot,
+                'Bias 20(%)': bias_20,
+                'Volatility': volatility
             })
         except:
             continue
     return pd.DataFrame(results)
 
 # ==========================================
-# 3. 視覺化與 Streamlit 呈現
+# 3. 視覺化
 # ==========================================
 
 def main():
-    st.title("📊 S&P 500 Advanced Market Dashboard")
+    st.title("📊 S&P 500 Pro Market Dashboard (策略升級版)")
     st.write(f"Last Update: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    st.info("首次載入可能需要 30-60 秒下載完整成分股數據，請稍候...")
     
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
-    with st.spinner('Downloading Market Data (Full S&P 500 + ETFs)...'):
+    with st.spinner('Downloading & Calculating (Full S&P 500 Strategies)...'):
         tickers, sector_map = parse_sector_data()
         full_data = get_market_data(tickers)
-    
-    if full_data.empty:
-        st.error("Failed to download data.")
-        return
+        
+        if full_data.empty:
+            st.error("Data download failed.")
+            return
 
-    with st.spinner('Calculating Indicators...'):
         mkt = calculate_market_indicators(full_data, tickers)
-        df_snapshot = get_latest_snapshot(full_data, tickers)
+        df_snapshot = get_latest_snapshot_with_strategy(full_data, tickers)
         df_snapshot['Sector'] = df_snapshot['Ticker'].map(sector_map)
         
-        # 使用新的函數計算 ETF 真實漲跌幅
+        rrg_df = calculate_rrg_data(full_data)
         sector_perf = get_sector_performance(full_data)
 
-    # 繪圖 Layout
+    # Layout
+    # Row 1-5: Charts
+    # Row 6: TRIN (New)
+    # Row 7: Sector Perf
+    # Row 8-11: Scanners
     fig = make_subplots(
-        rows=10, cols=2,
+        rows=11, cols=2,
         column_widths=[0.5, 0.5],
-        row_heights=[0.1, 0.1, 0.1, 0.1, 0.1, 0.15, 0.08, 0.08, 0.08, 0.08],
+        row_heights=[0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.07, 0.07, 0.07, 0.07],
         specs=[
-            [{"colspan": 2, "secondary_y": True}, None], # R1
-            [{"colspan": 2, "secondary_y": True}, None], # R2
-            [{"colspan": 2, "secondary_y": True}, None], # R3
-            [{"colspan": 2, "secondary_y": True}, None], # R4
-            [{"colspan": 2, "secondary_y": True}, None], # R5
-            [{"colspan": 2, "secondary_y": False}, None],# R6: Sector Perf (ETF Data)
-            [{"type": "table"}, {"type": "table"}],
-            [{"type": "table"}, {"type": "table"}],
-            [{"type": "table"}, {"type": "table"}],
-            [{"type": "table"}, {"type": "table"}]
+            [{"colspan": 2, "secondary_y": True}, None], # R1: Breadth
+            [{"colspan": 2, "secondary_y": True}, None], # R2: Cumul NH/NL
+            [{"colspan": 2, "secondary_y": True}, None], # R3: VIX Term
+            [{"colspan": 2, "secondary_y": True}, None], # R4: Strength Diff
+            [{"colspan": 2, "type": "scatter"}, None],   # R5: RRG
+            [{"colspan": 2, "secondary_y": True}, None], # R6: TRIN (New)
+            [{"colspan": 2, "secondary_y": False}, None],# R7: Sector Perf
+            [{"type": "table"}, {"type": "table"}],      # R8: Trend/Pocket
+            [{"type": "table"}, {"type": "table"}],      # R9
+            [{"type": "table"}, {"type": "table"}],      # R10
+            [{"type": "table"}, {"type": "table"}]       # R11
         ],
-        vertical_spacing=0.06,
+        vertical_spacing=0.05,
         subplot_titles=(
             "市場廣度：站上 60MA 比例 vs S&P 500",
-            "市場內部：52週新高/新低 家數比率 (Highs/Lows Ratio) - S&P 500 Version",
-            "市場動能：20日平均淨上漲家數 (Net Adv-Dec) vs S&P 500",
-            "資產強弱：(S&P500 20日報酬 - TLT 20日報酬) 差值 (折線圖)",
-            "恐慌指數：VIX vs 50日均線",
-            "各產業 ETF 今日漲跌幅 (Sector ETF Performance)",
-            "1. 漲幅最強 10 檔", "2. 跌幅最重 10 檔",
-            "3. 高波動度", "6. 正乖離過大 (>MA20)",
-            "7. 負乖離過大 (<MA20)", "4. 爆量上漲",
+            "市場趨勢：累積淨新高線 (Cumulative Net Highs)",
+            "恐慌結構：VIX / VIX3M 比率 (>1.0 恐慌)",
+            "資產強弱：(SPY - TLT) 20日報酬差值",
+            "動態板塊輪動 (RRG Proxy)",
+            "量價結構：TRIN (阿姆斯指數) - (>2.0 恐慌清洗, <0.5 極度貪婪)",
+            "各產業 ETF 今日漲跌幅",
+            "🔥 超級趨勢股", "💎 口袋支點爆量",
+            "1. 漲幅最強", "2. 跌幅最重",
+            "3. 高波動度", "4. 爆量上漲",
             "5. 爆量下跌", ""
         )
     )
@@ -392,65 +325,96 @@ def main():
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", line=dict(color='black', width=1)), row=1, col=1, secondary_y=False)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['breadth_pct'], name="% > MA60", line=dict(color='blue', width=2), fill='tozeroy', fillcolor='rgba(0,0,255,0.1)'), row=1, col=1, secondary_y=True)
 
-    # R2: NH/NL Ratio (Line Chart)
+    # R2: Cumul Net Highs
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=2, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['nh_nl_ratio'], name="Highs/Lows Ratio", line=dict(color='green', width=2)), row=2, col=1, secondary_y=True)
-    fig.add_hline(y=1, line_dash="dash", line_color="gray", row=2, col=1, secondary_y=True)
+    fig.add_trace(go.Scatter(x=x_axis, y=mkt['cum_net_highs'], name="Cumul Net Highs", line=dict(color='green', width=2)), row=2, col=1, secondary_y=True)
 
-    # R3: A/D Line
-    ad_colors = ['green' if v >= 0 else 'red' for v in mkt['ad_ma20']]
+    # R3: VIX Term
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=3, col=1, secondary_y=False)
-    fig.add_trace(go.Bar(x=x_axis, y=mkt['ad_ma20'], name="20MA Net Adv-Dec", marker_color=ad_colors, opacity=0.6), row=3, col=1, secondary_y=True)
+    fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix_term'], name="VIX/VIX3M", line=dict(color='red', width=2)), row=3, col=1, secondary_y=True)
+    fig.add_hline(y=1.0, line_dash="dot", line_color="gray", row=3, col=1, secondary_y=True)
 
-    # R4: Asset Strength (Line Chart)
+    # R4: Asset Strength
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=4, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['strength_diff'], name="SPY - TLT Return Diff", line=dict(color='purple', width=2)), row=4, col=1, secondary_y=True)
+    fig.add_trace(go.Scatter(x=x_axis, y=mkt['strength_diff'], name="SPY - TLT Diff", line=dict(color='purple', width=2)), row=4, col=1, secondary_y=True)
     fig.add_hline(y=0, line_dash="solid", line_color="gray", row=4, col=1, secondary_y=True)
 
-    # R5: VIX
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=5, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix'], name="VIX", line=dict(color='red', width=1)), row=5, col=1, secondary_y=True)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix_ma50'], name="VIX MA50", line=dict(color='darkred', width=1.5, dash='dash')), row=5, col=1, secondary_y=True)
+    # R5: RRG
+    fig.add_trace(go.Scatter(
+        x=rrg_df['X'], y=rrg_df['Y'], mode='markers+text', text=rrg_df['Sector'],
+        textposition='top center',
+        marker=dict(size=20, color=rrg_df['Change'], colorscale='RdYlGn', showscale=True, colorbar=dict(title="Today %", len=0.2, y=0.5)),
+        name="Sectors"
+    ), row=5, col=1)
+    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="gray", row=5, col=1)
+    fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray", row=5, col=1)
 
-    # R6: Sector Performance (ETF Data)
+    # R6: TRIN (New)
+    # TRIN 是一個反向指標，高值=恐慌(Bullish)，低值=貪婪(Bearish)
+    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=6, col=1, secondary_y=False)
+    fig.add_trace(go.Scatter(x=x_axis, y=mkt['trin'], name="TRIN", line=dict(color='orange', width=2)), row=6, col=1, secondary_y=True)
+    # 繪製關鍵閾值
+    fig.add_hline(y=1.0, line_dash="solid", line_color="gray", row=6, col=1, secondary_y=True)
+    fig.add_hline(y=2.0, line_dash="dot", line_color="red", annotation_text="Panic (>2.0)", row=6, col=1, secondary_y=True)
+    fig.add_hline(y=0.5, line_dash="dot", line_color="green", annotation_text="Greed (<0.5)", row=6, col=1, secondary_y=True)
+    fig.update_yaxes(range=[0, 3], secondary_y=True, row=6, col=1) # 限制 Y 軸範圍以免極端值破壞圖表
+
+    # R7: Sector Perf (ETF)
     sect_colors = ['green' if v >= 0 else 'red' for v in sector_perf.values]
     fig.add_trace(go.Bar(
-        x=sector_perf.index, 
-        y=sector_perf.values,
-        marker_color=sect_colors,
-        text=sector_perf.values,
-        texttemplate='%{y:.2f}%',
-        textposition='auto',
-        name="Sector Change"
-    ), row=6, col=1)
+        x=sector_perf.index, y=sector_perf.values, marker_color=sect_colors,
+        text=sector_perf.values, texttemplate='%{y:.2f}%', textposition='auto', name="Sector Change"
+    ), row=7, col=1)
 
-    # Tables
-    def add_table(row, col, df, cols=['Ticker', 'Close', 'Chg%', '52W High', '52W Low', 'Val']):
+    # --- Tables ---
+    def add_table(row, col, df, cols):
         fig.add_trace(go.Table(
             header=dict(values=cols, fill_color='navy', font=dict(color='white'), align='left'),
             cells=dict(values=[df[k] for k in df.columns], fill_color='lavender', align='left')
         ), row=row, col=col)
 
-    def fmt(df, val_col, format_str):
-        d = df[['Ticker', 'Close', 'Change %', '52W High', '52W Low', val_col]].copy()
+    def fmt(df, val_col=None, fmt_str='{:.2f}'):
+        d = df.copy()
         d['Close'] = d['Close'].map('{:,.2f}'.format)
         d['Change %'] = d['Change %'].map('{:+.2f}%'.format)
         d['52W High'] = d['52W High'].map('{:,.2f}'.format)
         d['52W Low'] = d['52W Low'].map('{:,.2f}'.format)
-        d[val_col] = d[val_col].map(format_str.format)
+        if val_col and val_col in d.columns and fmt_str:
+            d[val_col] = d[val_col].map(fmt_str.format)
         return d
 
-    add_table(7, 1, fmt(df_snapshot.sort_values('Change %', ascending=False).head(10), 'RVol', '{:.2f}x'))
-    add_table(7, 2, fmt(df_snapshot.sort_values('Change %', ascending=True).head(10), 'RVol', '{:.2f}x'))
-    add_table(8, 1, fmt(df_snapshot.sort_values('Volatility', ascending=False).head(10), 'Volatility', '{:.2f}%'))
-    add_table(8, 2, fmt(df_snapshot.sort_values('Bias 20(%)', ascending=False).head(10), 'Bias 20(%)', '{:+.2f}%'))
-    add_table(9, 1, fmt(df_snapshot.sort_values('Bias 20(%)', ascending=True).head(10), 'Bias 20(%)', '{:+.2f}%'))
-    vol_up = df_snapshot[df_snapshot['Change %'] > 0].sort_values('RVol', ascending=False).head(10)
-    add_table(9, 2, fmt(vol_up, 'RVol', '{:.2f}x'))
-    vol_down = df_snapshot[df_snapshot['Change %'] < 0].sort_values('RVol', ascending=False).head(10)
-    add_table(10, 1, fmt(vol_down, 'RVol', '{:.2f}x'))
+    # R8: Strategies
+    df_super = df_snapshot[df_snapshot['Super Trend'] == True].sort_values('RVol', ascending=False).head(10)
+    cols_strat = ['Ticker', 'Close', 'Change %', 'RVol', '52W High', '52W Low']
+    add_table(8, 1, fmt(df_super[cols_strat], 'RVol', '{:.2f}x'), cols_strat)
+    
+    df_pocket = df_snapshot[df_snapshot['Pocket Pivot'] == True].sort_values('Change %', ascending=False).head(10)
+    add_table(8, 2, fmt(df_pocket[cols_strat], 'RVol', '{:.2f}x'), cols_strat)
 
-    fig.update_layout(height=3000, template="plotly_white", showlegend=False)
+    # R9-R11: Basic Scanners
+    cols_basic = ['Ticker', 'Close', 'Change %', '52W High', '52W Low', 'Val']
+    
+    gainer_df = df_snapshot.sort_values('Change %', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
+    gainer_df.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
+    add_table(9, 1, fmt(gainer_df, 'Val', '{:.2f}x'), cols_basic)
+    
+    loser_df = df_snapshot.sort_values('Change %', ascending=True).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
+    loser_df.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
+    add_table(9, 2, fmt(loser_df, 'Val', '{:.2f}x'), cols_basic)
+    
+    high_vol = df_snapshot.sort_values('Volatility', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','Volatility']]
+    high_vol.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
+    add_table(10, 1, fmt(high_vol, 'Val', '{:.2f}%'), cols_basic)
+    
+    vol_up = df_snapshot[df_snapshot['Change %'] > 0].sort_values('RVol', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
+    vol_up.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
+    add_table(10, 2, fmt(vol_up, 'Val', '{:.2f}x'), cols_basic)
+    
+    vol_down = df_snapshot[df_snapshot['Change %'] < 0].sort_values('RVol', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
+    vol_down.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
+    add_table(11, 1, fmt(vol_down, 'Val', '{:.2f}x'), cols_basic)
+
+    fig.update_layout(height=3500, template="plotly_white", showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
