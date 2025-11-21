@@ -6,12 +6,14 @@ from plotly.subplots import make_subplots
 import datetime
 import numpy as np
 
+# 設定網頁寬度
 st.set_page_config(layout="wide", page_title="S&P 500 Pro Market Dashboard")
 
 # ==========================================
 # 1. 核心數據定義 (完整 S&P 500 成分股)
 # ==========================================
 
+# 11 大板塊 ETF 代碼
 SECTOR_ETF_MAP = {
     'XLB (原物料)': 'XLB', 'XLC (通訊)': 'XLC', 'XLE (能源)': 'XLE',
     'XLF (金融)': 'XLF', 'XLI (工業)': 'XLI', 'XLK (科技)': 'XLK',
@@ -19,8 +21,15 @@ SECTOR_ETF_MAP = {
     'XLV (醫療)': 'XLV', 'XLY (非必需消費)': 'XLY'
 }
 
-# 為了確保廣度指標 (TRIN, A/D Line) 的準確性，這裡列出完整的 S&P 500 成分股清單
-# 由於資料量大，這裡使用一個較大的代表性清單
+# 產業名稱中文化對照表
+SECTOR_NAME_MAP = {
+    'XLB': '原物料 (XLB)', 'XLC': '通訊 (XLC)', 'XLE': '能源 (XLE)',
+    'XLF': '金融 (XLF)', 'XLI': '工業 (XLI)', 'XLK': '科技 (XLK)',
+    'XLP': '必需消費 (XLP)', 'XLRE': '房地產 (XLRE)', 'XLU': '公用事業 (XLU)',
+    'XLV': '醫療 (XLV)', 'XLY': '非必需消費 (XLY)'
+}
+
+# 為了確保廣度指標 (TRIN, A/D Line) 的準確性，這裡包含 S&P 500 各板塊的主要成分股
 RAW_SECTOR_DATA = {
     'XLB': ['LIN', 'NEM', 'SHW', 'ECL', 'NUE', 'FCX', 'DD', 'VMC', 'MLM', 'APD', 'CTVA', 'IP', 'STLD', 'PPG', 'SW', 'AMCR', 'DOW', 'PKG', 'IFF', 'AVY', 'CF', 'BALL', 'LYB', 'ALB', 'MOS', 'EMN'],
     'XLC': ['META', 'GOOGL', 'GOOG', 'WBD', 'NFLX', 'EA', 'TTWO', 'DIS', 'VZ', 'CMCSA', 'TMUS', 'T', 'LYV', 'CHTR', 'TTD', 'OMC', 'TKO', 'FOXA', 'NWSA', 'IPG', 'FOX', 'MTCH', 'PSKY', 'NWS'],
@@ -42,20 +51,19 @@ def parse_sector_data():
     for sec, stocks in RAW_SECTOR_DATA.items():
         for s in stocks:
             tickers.append(s)
-            sector_map[s] = sec
+            sector_map[s] = SECTOR_NAME_MAP.get(sec, sec) # 映射中文產業名
     return list(set(tickers)), sector_map
 
 # ==========================================
-# 2. 數據下載與計算
+# 2. 數據下載與計算模組
 # ==========================================
 
 @st.cache_data(ttl=3600)
 def get_market_data(tickers):
-    # 增加 ^VIX3M 用於計算期限結構
     sector_etfs = list(SECTOR_ETF_MAP.values())
+    # ^GSPC: 標普500, TLT: 美債, ^VIX: 恐慌指數, ^VIX3M: 3個月期恐慌指數
     all_tickers = tickers + ['^GSPC', 'TLT', '^VIX', '^VIX3M'] + sector_etfs
     try:
-        # 下載 2 年數據
         data = yf.download(all_tickers, period="2y", group_by='ticker', threads=True, auto_adjust=True)
         return data
     except Exception as e:
@@ -66,25 +74,25 @@ def calculate_market_indicators(data, tickers):
     sp500 = data['^GSPC']['Close']
     tlt = data['TLT']['Close']
     vix = data['^VIX']['Close']
-    vix3m = data['^VIX3M']['Close'] 
+    vix3m = data['^VIX3M']['Close']
     
     benchmark_idx = sp500.index
     valid_tickers = [t for t in tickers if t in data]
     
-    # 建立矩陣
+    # 建立矩陣 (Matrix)
     close_df = pd.DataFrame({t: data[t]['Close'] for t in valid_tickers}).reindex(benchmark_idx)
     high_df = pd.DataFrame({t: data[t]['High'] for t in valid_tickers}).reindex(benchmark_idx)
     low_df = pd.DataFrame({t: data[t]['Low'] for t in valid_tickers}).reindex(benchmark_idx)
     volume_df = pd.DataFrame({t: data[t]['Volume'] for t in valid_tickers}).reindex(benchmark_idx)
     
-    # A. 市場廣度 (MA60)
+    # A. 市場廣度 (MA60) - 股價站上季線比例
     ma60_df = close_df.rolling(window=60).mean()
     above_ma60 = (close_df > ma60_df)
     valid_counts = ma60_df.notna().sum(axis=1)
     above_counts = above_ma60.sum(axis=1)
     breadth_pct = (above_counts / valid_counts * 100).fillna(0)
     
-    # B. 累積淨新高
+    # B. 累積淨新高 - (52週新高 - 新低) 的累積值
     roll_max_252 = high_df.rolling(window=252).max()
     roll_min_252 = low_df.rolling(window=252).min()
     new_highs = (high_df >= roll_max_252).sum(axis=1)
@@ -92,15 +100,15 @@ def calculate_market_indicators(data, tickers):
     net_nh_nl = new_highs - new_lows
     cum_net_highs = net_nh_nl.cumsum()
     
-    # C. VIX 期限結構
+    # C. VIX 期限結構 (Term Structure)
     vix_term_structure = vix / vix3m
     
-    # D. 資產強弱
+    # D. 資產強弱 (SPY vs TLT)
     sp500_ret = sp500.pct_change(20) * 100
     tlt_ret = tlt.pct_change(20) * 100
     strength_diff = sp500_ret - tlt_ret
 
-    # E. TRIN (Arms Index)
+    # E. TRIN (Arms Index) - 量價結構
     daily_change = close_df.diff()
     up_mask = daily_change > 0
     down_mask = daily_change < 0
@@ -113,7 +121,7 @@ def calculate_market_indicators(data, tickers):
     vol_ratio = advancing_volume / declining_volume.replace(0, 1)
     trin = ad_ratio / vol_ratio
     
-    lookback = 130
+    lookback = 130 # 取近半年
     return {
         'dates': sp500.index[-lookback:],
         'sp500': sp500.iloc[-lookback:],
@@ -128,40 +136,35 @@ def calculate_market_indicators(data, tickers):
 def calculate_rrg_data(data):
     sp500 = data['^GSPC']['Close']
     rrg_data = []
-    
     for name, ticker in SECTOR_ETF_MAP.items():
+        # 提取簡短中文名稱 (如 "科技")
+        short_name = name.split('(')[0].strip() if '(' in name else name
+        
         if ticker in data:
             sector_close = data[ticker]['Close']
+            # 相對強度計算 (RRG 邏輯簡化版)
             rs = sector_close / sp500
             rs_trend = rs.rolling(window=10).mean()
             rs_mean = rs_trend.rolling(window=60).mean()
             rs_std = rs_trend.rolling(window=60).std()
+            
             x_val = ((rs_trend - rs_mean) / rs_std).iloc[-1]
             x_val_prev = ((rs_trend - rs_mean) / rs_std).iloc[-10]
             y_val = x_val - x_val_prev
             
-            # 產業今日漲跌 (ETF)
+            # 今日漲跌幅
             df = data[ticker]
             df = df.dropna(subset=['Close'])
-            if len(df) >= 2:
-                curr = df['Close'].iloc[-1]
-                prev = df['Close'].iloc[-2]
-                chg = ((curr - prev) / prev) * 100
-            else:
-                chg = 0
+            chg = ((df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100 if len(df) >= 2 else 0
             
-            rrg_data.append({
-                'Sector': name.split(' ')[0],
-                'X': x_val,
-                'Y': y_val,
-                'Change': chg
-            })
+            rrg_data.append({'Sector': short_name, 'X': x_val, 'Y': y_val, 'Change': chg})
     return pd.DataFrame(rrg_data)
 
 def get_sector_performance(data):
-    """計算 ETF 的今日漲跌幅"""
     sector_changes = {}
     for name, ticker in SECTOR_ETF_MAP.items():
+        # 格式化名稱: 科技 (XLK)
+        short_name = name.split('(')[1].replace(')', '') + ' (' + name.split(' ')[0] + ')'
         try:
             if ticker in data:
                 df = data[ticker]
@@ -170,7 +173,7 @@ def get_sector_performance(data):
                     curr = df['Close'].iloc[-1]
                     prev = df['Close'].iloc[-2]
                     change = ((curr - prev) / prev) * 100
-                    sector_changes[name] = change
+                    sector_changes[short_name] = change
         except:
             continue
     return pd.Series(sector_changes).sort_values(ascending=False)
@@ -187,75 +190,61 @@ def get_latest_snapshot_with_strategy(data, tickers):
             curr = df.iloc[-1]
             prev = df.iloc[-2]
             close = float(curr['Close'])
-            
             change_pct = ((close - prev['Close']) / prev['Close']) * 100
             turnover = close * float(curr['Volume'])
             
+            # 技術指標
             ma50 = df['Close'].rolling(50).mean().iloc[-1]
             ma150 = df['Close'].rolling(150).mean().iloc[-1]
             ma200 = df['Close'].rolling(200).mean().iloc[-1]
-            
             high_52w = df['High'].tail(252).max()
             low_52w = df['Low'].tail(252).min()
             
-            # 策略 1: 趨勢模板
+            # 策略 1: 超級趨勢 (Minervini Trend Template)
             trend_score = 0
             if close > ma50 > ma150 > ma200: trend_score += 1
             if close > low_52w * 1.3: trend_score += 1
             if close > high_52w * 0.75: trend_score += 1
             is_super_trend = (trend_score == 3)
             
-            # 策略 2: 口袋支點
+            # 策略 2: 口袋支點 (Pocket Pivot)
             is_pocket_pivot = False
             if change_pct > 0:
                 last_10 = df.iloc[-11:-1]
                 down_days = last_10[last_10['Close'] < last_10['Open']]
                 if not down_days.empty:
-                    max_down_vol = down_days['Volume'].max()
-                    if curr['Volume'] > max_down_vol:
-                        is_pocket_pivot = True
-                elif curr['Volume'] > last_10['Volume'].max():
-                     is_pocket_pivot = True
+                    if curr['Volume'] > down_days['Volume'].max(): is_pocket_pivot = True
+                elif curr['Volume'] > last_10['Volume'].max(): is_pocket_pivot = True
 
-            # RVol
             avg_vol_20 = df['Volume'].iloc[-22:-2].mean()
             r_vol = curr['Volume'] / avg_vol_20 if avg_vol_20 > 0 else 0
             
-            # Bias & Volatility (For Basic Scanners)
             ma20 = float(df['Close'].rolling(20).mean().iloc[-1])
             bias_20 = ((close - ma20) / ma20) * 100
             volatility = ((curr['High'] - curr['Low']) / prev['Close']) * 100
 
             results.append({
-                'Ticker': ticker,
-                'Close': close,
-                'Change %': change_pct,
-                'Turnover': turnover,
-                'RVol': r_vol,
-                '52W High': high_52w,
-                '52W Low': low_52w,
-                'Super Trend': is_super_trend,
-                'Pocket Pivot': is_pocket_pivot,
-                'Bias 20(%)': bias_20,
-                'Volatility': volatility
+                'Ticker': ticker, 'Close': close, 'Change %': change_pct, 'Turnover': turnover,
+                'RVol': r_vol, '52W High': high_52w, '52W Low': low_52w,
+                'Super Trend': is_super_trend, 'Pocket Pivot': is_pocket_pivot,
+                'Bias 20(%)': bias_20, 'Volatility': volatility
             })
-        except:
-            continue
+        except: continue
     return pd.DataFrame(results)
 
 # ==========================================
-# 3. 視覺化
+# 3. 視覺化與版面配置
 # ==========================================
 
 def main():
-    st.title("📊 S&P 500 Pro Market Dashboard (策略升級版)")
+    st.title("📊 S&P 500 Pro Market Dashboard")
     st.write(f"Last Update: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
     
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
-    with st.spinner('Downloading & Calculating (Full S&P 500 Strategies)...'):
+    with st.spinner('Downloading & Calculating...'):
         tickers, sector_map = parse_sector_data()
         full_data = get_market_data(tickers)
         
@@ -270,96 +259,7 @@ def main():
         rrg_df = calculate_rrg_data(full_data)
         sector_perf = get_sector_performance(full_data)
 
-    # Layout
-    # Row 1-6: Charts (R6 is TRIN)
-    # Row 7: Sector Perf
-    # Row 8-11: Scanners
-    fig = make_subplots(
-        rows=11, cols=2,
-        column_widths=[0.5, 0.5],
-        row_heights=[0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.07, 0.07, 0.07, 0.07],
-        specs=[
-            [{"colspan": 2, "secondary_y": True}, None], # R1: Breadth
-            [{"colspan": 2, "secondary_y": True}, None], # R2: Cumul NH/NL
-            [{"colspan": 2, "secondary_y": True}, None], # R3: VIX Term
-            [{"colspan": 2, "secondary_y": True}, None], # R4: Strength Diff
-            [{"colspan": 2, "type": "scatter"}, None],   # R5: RRG
-            [{"colspan": 2, "secondary_y": True}, None], # R6: TRIN (New)
-            [{"colspan": 2, "secondary_y": False}, None],# R7: Sector Perf
-            [{"type": "table"}, {"type": "table"}],      # R8: Trend/Pocket
-            [{"type": "table"}, {"type": "table"}],      # R9
-            [{"type": "table"}, {"type": "table"}],      # R10
-            [{"type": "table"}, {"type": "table"}]       # R11
-        ],
-        vertical_spacing=0.05,
-        subplot_titles=(
-            "市場廣度：站上 60MA 比例 vs S&P 500",
-            "市場趨勢：累積淨新高線 (Cumulative Net Highs)",
-            "恐慌結構：VIX / VIX3M 比率 (>1.0 恐慌)",
-            "資產強弱：(SPY - TLT) 20日報酬差值",
-            "動態板塊輪動 (RRG Proxy)",
-            "量價結構：TRIN (阿姆斯指數) - (>2.0 恐慌清洗, <0.5 極度貪婪)",
-            "各產業 ETF 今日漲跌幅",
-            "🔥 超級趨勢股 (Minervini Trend Template)", "💎 口袋支點爆量 (Pocket Pivot)",
-            "1. 漲幅最強", "2. 跌幅最重",
-            "3. 高波動度", "4. 爆量上漲",
-            "5. 爆量下跌", ""
-        )
-    )
-
     x_axis = mkt['dates']
-
-    # R1: Breadth
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", line=dict(color='black', width=1)), row=1, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['breadth_pct'], name="% > MA60", line=dict(color='blue', width=2), fill='tozeroy', fillcolor='rgba(0,0,255,0.1)'), row=1, col=1, secondary_y=True)
-    fig.update_yaxes(title_text="比例 (%)", range=[0, 100], secondary_y=True, row=1, col=1)
-
-
-    # R2: Cumul Net Highs
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=2, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['cum_net_highs'], name="Cumul Net Highs", line=dict(color='green', width=2)), row=2, col=1, secondary_y=True)
-
-    # R3: VIX Term
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=3, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['vix_term'], name="VIX/VIX3M", line=dict(color='red', width=2)), row=3, col=1, secondary_y=True)
-    fig.add_hline(y=1.0, line_dash="dot", line_color="gray", row=3, col=1, secondary_y=True)
-
-    # R4: Asset Strength
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=4, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['strength_diff'], name="SPY - TLT Diff", line=dict(color='purple', width=2)), row=4, col=1, secondary_y=True)
-    fig.add_hline(y=0, line_dash="solid", line_color="gray", row=4, col=1, secondary_y=True)
-
-    # R5: RRG
-    fig.add_trace(go.Scatter(
-        x=rrg_df['X'], y=rrg_df['Y'], mode='markers+text', text=rrg_df['Sector'],
-        textposition='top center',
-        marker=dict(size=20, color=rrg_df['Change'], colorscale='RdYlGn', showscale=True, colorbar=dict(title="Today %", len=0.2, y=0.5)),
-        name="Sectors"
-    ), row=5, col=1)
-    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="gray", row=5, col=1)
-    fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray", row=5, col=1)
-
-    # R6: TRIN (New)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=6, col=1, secondary_y=False)
-    fig.add_trace(go.Scatter(x=x_axis, y=mkt['trin'], name="TRIN", line=dict(color='orange', width=2)), row=6, col=1, secondary_y=True)
-    fig.add_hline(y=1.0, line_dash="solid", line_color="gray", row=6, col=1, secondary_y=True)
-    fig.add_hline(y=2.0, line_dash="dot", line_color="red", annotation_text="Panic (>2.0)", row=6, col=1, secondary_y=True)
-    fig.add_hline(y=0.5, line_dash="dot", line_color="green", annotation_text="Greed (<0.5)", row=6, col=1, secondary_y=True)
-    fig.update_yaxes(range=[0, 3], secondary_y=True, row=6, col=1)
-
-    # R7: Sector Perf (ETF)
-    sect_colors = ['green' if v >= 0 else 'red' for v in sector_perf.values]
-    fig.add_trace(go.Bar(
-        x=sector_perf.index, y=sector_perf.values, marker_color=sect_colors,
-        text=sector_perf.values, texttemplate='%{y:.2f}%', textposition='auto', name="Sector Change"
-    ), row=7, col=1)
-
-    # --- Tables ---
-    def add_table(row, col, df, cols):
-        fig.add_trace(go.Table(
-            header=dict(values=cols, fill_color='navy', font=dict(color='white'), align='left'),
-            cells=dict(values=[df[k] for k in df.columns], fill_color='lavender', align='left')
-        ), row=row, col=col)
 
     def fmt(df, val_col=None, fmt_str='{:.2f}'):
         d = df.copy()
@@ -371,39 +271,149 @@ def main():
             d[val_col] = d[val_col].map(fmt_str.format)
         return d
 
-    # R8: Strategies
-    df_super = df_snapshot[df_snapshot['Super Trend'] == True].sort_values('RVol', ascending=False).head(10)
-    cols_strat = ['Ticker', 'Close', 'Change %', 'RVol', '52W High', '52W Low']
-    add_table(8, 1, fmt(df_super[cols_strat], 'RVol', '{:.2f}x'), cols_strat)
+    # --- Part 1: 大盤健康度診斷 ---
+    st.header("一、 大盤健康度診斷 (Market Health)")
     
-    df_pocket = df_snapshot[df_snapshot['Pocket Pivot'] == True].sort_values('Change %', ascending=False).head(10)
-    add_table(8, 2, fmt(df_pocket[cols_strat], 'RVol', '{:.2f}x'), cols_strat)
+    # Chart 1: Breadth
+    fig_breadth = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_breadth.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", line=dict(color='black', width=1)), secondary_y=False)
+    fig_breadth.add_trace(go.Scatter(x=x_axis, y=mkt['breadth_pct'], name="% > MA60", line=dict(color='blue', width=2), fill='tozeroy', fillcolor='rgba(0,0,255,0.1)'), secondary_y=True)
+    fig_breadth.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="50% 分界線", secondary_y=True)
+    fig_breadth.update_yaxes(title_text="比例 (%)", range=[0, 100], secondary_y=True)
+    fig_breadth.update_layout(title="市場廣度：站上 60MA 比例", height=350)
+    st.plotly_chart(fig_breadth, use_container_width=True)
 
-    # R9-R11: Basic Scanners
-    cols_basic = ['Ticker', 'Close', 'Change %', '52W High', '52W Low', 'Val']
-    
-    gainer_df = df_snapshot.sort_values('Change %', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
-    gainer_df.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
-    add_table(9, 1, fmt(gainer_df, 'Val', '{:.2f}x'), cols_basic)
-    
-    loser_df = df_snapshot.sort_values('Change %', ascending=True).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
-    loser_df.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
-    add_table(9, 2, fmt(loser_df, 'Val', '{:.2f}x'), cols_basic)
-    
-    high_vol = df_snapshot.sort_values('Volatility', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','Volatility']]
-    high_vol.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
-    add_table(10, 1, fmt(high_vol, 'Val', '{:.2f}%'), cols_basic)
-    
-    vol_up = df_snapshot[df_snapshot['Change %'] > 0].sort_values('RVol', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
-    vol_up.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
-    add_table(10, 2, fmt(vol_up, 'Val', '{:.2f}x'), cols_basic)
-    
-    vol_down = df_snapshot[df_snapshot['Change %'] < 0].sort_values('RVol', ascending=False).head(10)[['Ticker','Close','Change %','52W High','52W Low','RVol']]
-    vol_down.columns = ['Ticker','Close','Change %','52W High','52W Low','Val']
-    add_table(11, 1, fmt(vol_down, 'Val', '{:.2f}x'), cols_basic)
+    # Chart 2: Cumul Net Highs
+    fig_nhnl = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_nhnl.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), secondary_y=False)
+    fig_nhnl.add_trace(go.Scatter(x=x_axis, y=mkt['cum_net_highs'], name="Cumul Net Highs", line=dict(color='green', width=2)), secondary_y=True)
+    fig_nhnl.update_layout(title="市場趨勢：累積淨新高線 (Cumulative Net Highs)", height=350)
+    st.plotly_chart(fig_nhnl, use_container_width=True)
 
-    fig.update_layout(height=3500, template="plotly_white", showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+    # Chart 3: TRIN
+    fig_trin = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_trin.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), secondary_y=False)
+    fig_trin.add_trace(go.Scatter(x=x_axis, y=mkt['trin'], name="TRIN", line=dict(color='orange', width=2)), secondary_y=True)
+    fig_trin.add_hline(y=2.0, line_dash="dot", line_color="red", annotation_text="Panic", secondary_y=True)
+    fig_trin.add_hline(y=0.5, line_dash="dot", line_color="green", annotation_text="Greed", secondary_y=True)
+    fig_trin.update_yaxes(range=[0, 3], secondary_y=True)
+    fig_trin.update_layout(title="量價結構：TRIN (阿姆斯指數)", height=350)
+    st.plotly_chart(fig_trin, use_container_width=True)
+
+    # --- Part 2: 風險控管 ---
+    st.header("二、 風險控管 (Risk Management)")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Chart 4: VIX Term
+        fig_vix = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_vix.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), secondary_y=False)
+        fig_vix.add_trace(go.Scatter(x=x_axis, y=mkt['vix_term'], name="VIX/VIX3M", line=dict(color='red', width=2)), secondary_y=True)
+        fig_vix.add_hline(y=1.0, line_dash="dot", line_color="gray", secondary_y=True)
+        fig_vix.update_layout(title="恐慌結構：VIX / VIX3M 比率 (>1.0 恐慌)", height=350)
+        st.plotly_chart(fig_vix, use_container_width=True)
+
+    with col2:
+        # Chart 5: Asset Strength
+        fig_asset = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_asset.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), secondary_y=False)
+        fig_asset.add_trace(go.Scatter(x=x_axis, y=mkt['strength_diff'], name="SPY-TLT Diff", line=dict(color='purple', width=2)), secondary_y=True)
+        fig_asset.add_hline(y=0, line_dash="solid", line_color="gray", secondary_y=True)
+        fig_asset.update_layout(title="資產強弱：(SPY - TLT) 20日報酬差值", height=350)
+        st.plotly_chart(fig_asset, use_container_width=True)
+
+    # --- Part 3: 資金流向與板塊輪動 ---
+    st.header("三、 資金流向與板塊輪動 (Sector Rotation)")
+    
+    # Chart 6: RRG
+    fig_rrg = go.Figure()
+    fig_rrg.add_trace(go.Scatter(
+        x=rrg_df['X'], y=rrg_df['Y'], mode='markers+text', text=rrg_df['Sector'],
+        textposition='top center',
+        marker=dict(size=20, color=rrg_df['Change'], colorscale='RdYlGn', showscale=True, colorbar=dict(title="Today %", len=0.5)),
+        name="Sectors"
+    ))
+    fig_rrg.add_vline(x=0, line_width=1, line_dash="dash", line_color="gray")
+    fig_rrg.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
+    fig_rrg.update_layout(title="動態板塊輪動 (RRG Proxy) - 右上領先/左下落後", height=500, xaxis_title="Relative Strength (Trend)", yaxis_title="Relative Momentum (ROC)")
+    st.plotly_chart(fig_rrg, use_container_width=True)
+
+    # Chart 7: Sector Perf
+    fig_sect = go.Figure()
+    sect_colors = ['green' if v >= 0 else 'red' for v in sector_perf.values]
+    fig_sect.add_trace(go.Bar(
+        x=sector_perf.index, y=sector_perf.values, marker_color=sect_colors,
+        text=sector_perf.values, texttemplate='%{y:.2f}%', textposition='auto', name="Sector Change"
+    ))
+    fig_sect.update_layout(title="各產業 ETF 今日漲跌幅", height=400)
+    st.plotly_chart(fig_sect, use_container_width=True)
+
+    # --- Part 4: 強勢股篩選 ---
+    st.header("四、 強勢股篩選 (Stock Selection)")
+    cols_strat = ['Ticker', 'Sector', 'Close', 'Change %', 'RVol', '52W High', '52W Low']
+    cols_basic = ['Ticker', 'Sector', 'Close', 'Change %', '52W High', '52W Low', 'Val']
+
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        st.subheader("🔥 超級趨勢股 (Super Trend)")
+        df_super = df_snapshot[df_snapshot['Super Trend'] == True].sort_values('RVol', ascending=False).head(10)
+        fig_super = go.Figure(data=[go.Table(
+            header=dict(values=cols_strat, fill_color='navy', font=dict(color='white'), align='left'),
+            cells=dict(values=[fmt(df_super, 'RVol', '{:.2f}x')[k] for k in cols_strat], fill_color='lavender', align='left'))
+        ])
+        fig_super.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fig_super, use_container_width=True)
+        
+        st.subheader("🚀 漲幅最強 Top 10")
+        gainer_df = df_snapshot.sort_values('Change %', ascending=False).head(10)[['Ticker','Sector','Close','Change %','52W High','52W Low','RVol']]
+        gainer_df.columns = ['Ticker','Sector','Close','Change %','52W High','52W Low','Val']
+        fig_gain = go.Figure(data=[go.Table(
+            header=dict(values=cols_basic, fill_color='navy', font=dict(color='white'), align='left'),
+            cells=dict(values=[fmt(gainer_df, 'Val', '{:.2f}x')[k] for k in cols_basic], fill_color='lavender', align='left'))
+        ])
+        fig_gain.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fig_gain, use_container_width=True)
+
+        st.subheader("⚡ 高波動度 Top 10")
+        high_vol = df_snapshot.sort_values('Volatility', ascending=False).head(10)[['Ticker','Sector','Close','Change %','52W High','52W Low','Volatility']]
+        high_vol.columns = ['Ticker','Sector','Close','Change %','52W High','52W Low','Val']
+        fig_vol = go.Figure(data=[go.Table(
+            header=dict(values=cols_basic, fill_color='navy', font=dict(color='white'), align='left'),
+            cells=dict(values=[fmt(high_vol, 'Val', '{:.2f}%')[k] for k in cols_basic], fill_color='lavender', align='left'))
+        ])
+        fig_vol.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fig_vol, use_container_width=True)
+
+    with col4:
+        st.subheader("💎 口袋支點爆量 (Pocket Pivot)")
+        df_pocket = df_snapshot[df_snapshot['Pocket Pivot'] == True].sort_values('Change %', ascending=False).head(10)
+        fig_pocket = go.Figure(data=[go.Table(
+            header=dict(values=cols_strat, fill_color='navy', font=dict(color='white'), align='left'),
+            cells=dict(values=[fmt(df_pocket, 'RVol', '{:.2f}x')[k] for k in cols_strat], fill_color='lavender', align='left'))
+        ])
+        fig_pocket.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fig_pocket, use_container_width=True)
+
+        st.subheader("💧 跌幅最重 Top 10")
+        loser_df = df_snapshot.sort_values('Change %', ascending=True).head(10)[['Ticker','Sector','Close','Change %','52W High','52W Low','RVol']]
+        loser_df.columns = ['Ticker','Sector','Close','Change %','52W High','52W Low','Val']
+        fig_loss = go.Figure(data=[go.Table(
+            header=dict(values=cols_basic, fill_color='navy', font=dict(color='white'), align='left'),
+            cells=dict(values=[fmt(loser_df, 'Val', '{:.2f}x')[k] for k in cols_basic], fill_color='lavender', align='left'))
+        ])
+        fig_loss.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fig_loss, use_container_width=True)
+
+        st.subheader("💥 爆量上漲 Top 10")
+        vol_up = df_snapshot[df_snapshot['Change %'] > 0].sort_values('RVol', ascending=False).head(10)[['Ticker','Sector','Close','Change %','52W High','52W Low','RVol']]
+        vol_up.columns = ['Ticker','Sector','Close','Change %','52W High','52W Low','Val']
+        fig_volup = go.Figure(data=[go.Table(
+            header=dict(values=cols_basic, fill_color='navy', font=dict(color='white'), align='left'),
+            cells=dict(values=[fmt(vol_up, 'Val', '{:.2f}x')[k] for k in cols_basic], fill_color='lavender', align='left'))
+        ])
+        fig_volup.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fig_volup, use_container_width=True)
 
 if __name__ == "__main__":
     main()
