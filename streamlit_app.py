@@ -20,6 +20,7 @@ SECTOR_ETF_MAP = {
 }
 
 # 為了確保廣度指標 (TRIN, A/D Line) 的準確性，這裡列出完整的 S&P 500 成分股清單
+# 由於資料量大，這裡使用一個較大的代表性清單
 RAW_SECTOR_DATA = {
     'XLB': ['LIN', 'NEM', 'SHW', 'ECL', 'NUE', 'FCX', 'DD', 'VMC', 'MLM', 'APD', 'CTVA', 'IP', 'STLD', 'PPG', 'SW', 'AMCR', 'DOW', 'PKG', 'IFF', 'AVY', 'CF', 'BALL', 'LYB', 'ALB', 'MOS', 'EMN'],
     'XLC': ['META', 'GOOGL', 'GOOG', 'WBD', 'NFLX', 'EA', 'TTWO', 'DIS', 'VZ', 'CMCSA', 'TMUS', 'T', 'LYV', 'CHTR', 'TTD', 'OMC', 'TKO', 'FOXA', 'NWSA', 'IPG', 'FOX', 'MTCH', 'PSKY', 'NWS'],
@@ -99,31 +100,19 @@ def calculate_market_indicators(data, tickers):
     tlt_ret = tlt.pct_change(20) * 100
     strength_diff = sp500_ret - tlt_ret
 
-    # E. TRIN (Arms Index) - 新增指標
-    # 計算公式: (上漲家數/下跌家數) / (上漲成交量/下跌成交量)
+    # E. TRIN (Arms Index)
     daily_change = close_df.diff()
-    
-    # 上漲/下跌 遮罩
     up_mask = daily_change > 0
     down_mask = daily_change < 0
-    
-    # 上漲/下跌 家數
     advancing_issues = up_mask.sum(axis=1)
     declining_issues = down_mask.sum(axis=1)
-    
-    # 上漲/下跌 成交量
     advancing_volume = (volume_df * up_mask).sum(axis=1)
     declining_volume = (volume_df * down_mask).sum(axis=1)
     
-    # 計算比率 (避免除以0)
     ad_ratio = advancing_issues / declining_issues.replace(0, 1)
     vol_ratio = advancing_volume / declining_volume.replace(0, 1)
-    
     trin = ad_ratio / vol_ratio
     
-    # 簡單移動平均平滑 TRIN (例如 10日) 讓趨勢更明顯，但通常看單日極值
-    # 這裡保留原始 TRIN 供觀察極值
-
     lookback = 130
     return {
         'dates': sp500.index[-lookback:],
@@ -133,7 +122,7 @@ def calculate_market_indicators(data, tickers):
         'vix_term': vix_term_structure.iloc[-lookback:], 
         'strength_diff': strength_diff.iloc[-lookback:],
         'vix': vix.iloc[-lookback:],
-        'trin': trin.iloc[-lookback:] # 新增
+        'trin': trin.iloc[-lookback:]
     }
 
 def calculate_rrg_data(data):
@@ -282,8 +271,7 @@ def main():
         sector_perf = get_sector_performance(full_data)
 
     # Layout
-    # Row 1-5: Charts
-    # Row 6: TRIN (New)
+    # Row 1-6: Charts (R6 is TRIN)
     # Row 7: Sector Perf
     # Row 8-11: Scanners
     fig = make_subplots(
@@ -312,7 +300,7 @@ def main():
             "動態板塊輪動 (RRG Proxy)",
             "量價結構：TRIN (阿姆斯指數) - (>2.0 恐慌清洗, <0.5 極度貪婪)",
             "各產業 ETF 今日漲跌幅",
-            "🔥 超級趨勢股", "💎 口袋支點爆量",
+            "🔥 超級趨勢股 (Minervini Trend Template)", "💎 口袋支點爆量 (Pocket Pivot)",
             "1. 漲幅最強", "2. 跌幅最重",
             "3. 高波動度", "4. 爆量上漲",
             "5. 爆量下跌", ""
@@ -324,6 +312,8 @@ def main():
     # R1: Breadth
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", line=dict(color='black', width=1)), row=1, col=1, secondary_y=False)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['breadth_pct'], name="% > MA60", line=dict(color='blue', width=2), fill='tozeroy', fillcolor='rgba(0,0,255,0.1)'), row=1, col=1, secondary_y=True)
+    fig.update_yaxes(title_text="比例 (%)", range=[0, 100], secondary_y=True, row=1, col=1)
+
 
     # R2: Cumul Net Highs
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=2, col=1, secondary_y=False)
@@ -350,14 +340,12 @@ def main():
     fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray", row=5, col=1)
 
     # R6: TRIN (New)
-    # TRIN 是一個反向指標，高值=恐慌(Bullish)，低值=貪婪(Bearish)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['sp500'], name="S&P 500", showlegend=False, line=dict(color='black', width=1)), row=6, col=1, secondary_y=False)
     fig.add_trace(go.Scatter(x=x_axis, y=mkt['trin'], name="TRIN", line=dict(color='orange', width=2)), row=6, col=1, secondary_y=True)
-    # 繪製關鍵閾值
     fig.add_hline(y=1.0, line_dash="solid", line_color="gray", row=6, col=1, secondary_y=True)
     fig.add_hline(y=2.0, line_dash="dot", line_color="red", annotation_text="Panic (>2.0)", row=6, col=1, secondary_y=True)
     fig.add_hline(y=0.5, line_dash="dot", line_color="green", annotation_text="Greed (<0.5)", row=6, col=1, secondary_y=True)
-    fig.update_yaxes(range=[0, 3], secondary_y=True, row=6, col=1) # 限制 Y 軸範圍以免極端值破壞圖表
+    fig.update_yaxes(range=[0, 3], secondary_y=True, row=6, col=1)
 
     # R7: Sector Perf (ETF)
     sect_colors = ['green' if v >= 0 else 'red' for v in sector_perf.values]
