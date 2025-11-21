@@ -9,7 +9,7 @@ import numpy as np
 st.set_page_config(layout="wide", page_title="S&P 500 Pro Market Dashboard")
 
 # ==========================================
-# 1. 核心數據定義
+# 1. 核心數據定義 (完整 S&P 500 成分股)
 # ==========================================
 
 SECTOR_ETF_MAP = {
@@ -72,15 +72,7 @@ def calculate_market_indicators(data, tickers):
     vix = data['^VIX']['Close']
     vix3m = data['^VIX3M']['Close']
     
-    # 關鍵修正：確保所有 Series 都對齊到相同的 Index
     benchmark_idx = sp500.index
-    
-    # 統一重新索引，填補缺失值 (ffill)
-    tlt = tlt.reindex(benchmark_idx).ffill()
-    hyg = hyg.reindex(benchmark_idx).ffill()
-    vix = vix.reindex(benchmark_idx).ffill()
-    vix3m = vix3m.reindex(benchmark_idx).ffill()
-    
     valid_tickers = [t for t in tickers if t in data]
     
     close_df = pd.DataFrame({t: data[t]['Close'] for t in valid_tickers}).reindex(benchmark_idx)
@@ -106,7 +98,7 @@ def calculate_market_indicators(data, tickers):
     # C. VIX 期限結構
     vix_term_structure = vix / vix3m
     
-    # D. 資產強弱 (SPY vs TLT) - 使用 pct_change(20)
+    # D. 資產強弱
     sp500_ret = sp500.pct_change(20) * 100
     tlt_ret = tlt.pct_change(20) * 100
     strength_diff = sp500_ret - tlt_ret
@@ -128,19 +120,17 @@ def calculate_market_indicators(data, tickers):
     net_advances = advancing_issues - declining_issues
     ad_ma20 = net_advances.rolling(window=20).mean()
 
-    # G. 風險偏好: HYG/TLT
+    # G. 風險偏好
     hyg_tlt_ratio = hyg / tlt
     
-    # 最終切片 (確保長度一致)
     lookback = 130
-    
     return {
         'dates': sp500.index[-lookback:],
         'sp500': sp500.iloc[-lookback:],
         'breadth_pct': breadth_pct.iloc[-lookback:],
         'cum_net_highs': cum_net_highs.iloc[-lookback:], 
         'vix_term': vix_term_structure.iloc[-lookback:], 
-        'strength_diff': strength_diff.iloc[-lookback:], # 這裡現在長度會正確
+        'strength_diff': strength_diff.iloc[-lookback:],
         'vix': vix.iloc[-lookback:],
         'trin': trin.iloc[-lookback:],
         'ad_ma20': ad_ma20.iloc[-lookback:],
@@ -151,7 +141,9 @@ def calculate_rrg_data(data):
     sp500 = data['^GSPC']['Close']
     rrg_data = []
     for name, ticker in SECTOR_ETF_MAP.items():
-        short_name = name.split('(')[0].strip() if '(' in name else name
+        # 修正：使用括號後的中文名稱，例如 "XLB (原物料)" -> "原物料"
+        short_name = name.split('(')[1].strip(')') if '(' in name else name
+        
         if ticker in data:
             sector_close = data[ticker]['Close']
             rs = sector_close / sp500
@@ -173,6 +165,7 @@ def calculate_rrg_data(data):
 def get_sector_performance(data):
     sector_changes = {}
     for name, ticker in SECTOR_ETF_MAP.items():
+        # 顯示格式：科技 (XLK)
         short_name = name.split('(')[1].replace(')', '') + ' (' + name.split(' ')[0] + ')'
         try:
             if ticker in data:
@@ -266,7 +259,7 @@ def main():
 
     x_axis = mkt['dates']
 
-    # 計算 SP500 Y軸動態範圍 (Zoom In)
+    # 計算 SP500 Y軸動態範圍
     sp500_min = mkt['sp500'].min()
     sp500_max = mkt['sp500'].max()
     padding = (sp500_max - sp500_min) * 0.05 
